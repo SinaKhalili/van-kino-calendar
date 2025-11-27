@@ -1,19 +1,35 @@
 import { CalendarInstance } from "./types";
 import { PST_TIME_ZONE } from "./date-helpers";
 
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([a-f\d]+);/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#038;/g, "&");
+}
+
 export function parseEventTitle(html: string, event: CalendarInstance) {
   // For Rio and Cinematheque events, title is already plain text
   if (event.theatre === "rio" || event.theatre === "cinematheque") {
     return {
-      title: event.title,
+      title: decodeHtmlEntities(event.title),
       time: "",
       duration: "",
       description: event.moreInfo
-        ? event.moreInfo
-            .replace(/<[^>]+>/g, "")
-            .replace(/\s+/g, " ")
-            .trim()
-            .substring(0, 200)
+        ? decodeHtmlEntities(
+            event.moreInfo
+              .replace(/<[^>]+>/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .substring(0, 200)
+          )
         : "",
     };
   }
@@ -44,7 +60,9 @@ export function parseEventTitle(html: string, event: CalendarInstance) {
   }
 
   return {
-    title: titleMatch?.[1]?.trim() || "Untitled",
+    title: titleMatch?.[1]
+      ? decodeHtmlEntities(titleMatch[1].trim())
+      : "Untitled",
     time: timeMatch?.[1]?.trim() || "",
     duration: durationMatch?.[1] ? `${durationMatch[1]} min` : "",
     description: description || "",
