@@ -59,7 +59,7 @@ type VenueFilter = "viff" | "rio" | "cinematheque";
 const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque"];
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-type ThemeMode = "festival" | "showtime";
+type ThemeMode = "festival" | "showtime" | "billboard";
 
 function App() {
   const loaderData = Route.useLoaderData();
@@ -76,7 +76,19 @@ function App() {
     ...venueFilters,
   ]);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>("festival");
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("activeTheme");
+      if (
+        stored === "festival" ||
+        stored === "showtime" ||
+        stored === "billboard"
+      ) {
+        return stored as ThemeMode;
+      }
+    }
+    return "festival";
+  });
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
@@ -158,6 +170,29 @@ function App() {
     }
   };
 
+  const isBillboardTheme = theme === "billboard";
+  const isShowtimeTheme = theme === "showtime";
+  const backgroundClass = isBillboardTheme
+    ? "bg-gray-800"
+    : isShowtimeTheme
+    ? "bg-gray-50"
+    : "bg-[#fdf9f3]";
+  const headerContainerClass = isBillboardTheme
+    ? "border-8 border-black bg-[#050505] text-white shadow-[0_10px_25px_rgba(0,0,0,0.4)]"
+    : isShowtimeTheme
+    ? "border-8 border-black bg-white text-black"
+    : "border-8 border-black bg-yellow-200 text-black";
+  const headerPanelClass = isBillboardTheme
+    ? "border-4 border-yellow-400 bg-[#111111]"
+    : isShowtimeTheme
+    ? "border-4 border-black bg-gray-50"
+    : "border-4 border-black bg-white";
+  const headerAccentTextClass = isBillboardTheme
+    ? "text-yellow-200"
+    : isShowtimeTheme
+    ? "text-gray-700"
+    : "text-black";
+
   const toggleVenue = (venue: VenueFilter) => {
     setActiveVenues((prev) => {
       if (prev.includes(venue)) {
@@ -210,38 +245,94 @@ function App() {
 
   return (
     <>
-      <div className="min-h-screen bg-[#fdf9f3] text-black p-4">
+      <div
+        className={`min-h-screen ${backgroundClass} ${
+          isBillboardTheme ? "text-white" : "text-black"
+        } p-4`}
+      >
         <div className="max-w-6xl mx-auto">
           <div className="mb-4">
-            <div className="border-8 border-black bg-yellow-200 px-4 py-3 space-y-3">
+            <div className={`${headerContainerClass} px-4 py-3 space-y-3`}>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex flex-col">
-                  <span className="text-[11px] font-black uppercase tracking-[0.5em]">
+                <div
+                  className={`flex flex-col ${
+                    isShowtimeTheme ? "gap-0.5" : ""
+                  }`}
+                >
+                  <span
+                    className={`text-[11px] font-black uppercase tracking-[0.5em] ${headerAccentTextClass} ${
+                      isShowtimeTheme
+                        ? "italic leading-tight font-lora"
+                        : isBillboardTheme
+                        ? "font-bebas"
+                        : ""
+                    }`}
+                  >
                     LIVE LISTINGS / PST
                   </span>
-                  <h1 className="text-3xl sm:text-5xl font-black uppercase leading-none">
+                  <h1
+                    className={`text-3xl sm:text-5xl font-black uppercase ${
+                      isShowtimeTheme
+                        ? "italic leading-tight font-lora"
+                        : isBillboardTheme
+                        ? "font-bebas leading-none"
+                        : "leading-none"
+                    }`}
+                  >
                     VAN KINO CALENDAR
                   </h1>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-black uppercase">Vancouver, BC</p>
-                  <p className="text-xs font-black uppercase tracking-widest">
+                  <p
+                    className={`text-sm font-black uppercase ${
+                      isBillboardTheme ? "font-bebas" : ""
+                    }`}
+                  >
+                    Vancouver, BC
+                  </p>
+                  <p
+                    className={`text-xs font-black uppercase tracking-widest ${
+                      isBillboardTheme ? "font-bebas" : ""
+                    }`}
+                  >
                     FILM CALENDAR AGGREGATOR
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row sm:items-stretch gap-3 sm:gap-2 border-4 border-black bg-white px-3 py-2">
+              <div
+                className={`${headerPanelClass} flex flex-col sm:flex-row sm:items-stretch gap-3 sm:gap-2 px-3 py-2`}
+              >
                 <button
                   onClick={() => handleDateChange(-1)}
                   className="bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 hover:text-black transition-colors w-full sm:w-auto sm:self-stretch flex items-center justify-center"
                 >
                   ←
                 </button>
-                <div className="flex flex-col items-center gap-1 text-center flex-1 justify-center">
-                  <span className="text-xs font-black uppercase tracking-[0.5em]">
+                <div
+                  className={`flex flex-col items-center text-center flex-1 justify-center ${
+                    isShowtimeTheme ? "gap-0.5" : "gap-1"
+                  }`}
+                >
+                  <span
+                    className={`text-xs font-black uppercase tracking-[0.5em] ${headerAccentTextClass} ${
+                      isShowtimeTheme
+                        ? "italic leading-tight font-lora"
+                        : isBillboardTheme
+                        ? "font-bebas tracking-[0.3em]"
+                        : ""
+                    }`}
+                  >
                     PROGRAMME DATE
                   </span>
-                  <p className="text-4xl font-black uppercase tracking-tighter">
+                  <p
+                    className={`text-4xl font-black uppercase ${
+                      isShowtimeTheme
+                        ? "italic leading-tight font-lora tracking-tighter"
+                        : isBillboardTheme
+                        ? "font-bebas tracking-wide"
+                        : "tracking-tighter"
+                    }`}
+                  >
                     <span>
                       {weekdayLabels[activeWeekday] ?? weekdayLabel},{" "}
                     </span>
@@ -250,7 +341,11 @@ function App() {
                   </p>
                   <span
                     className={`text-xs font-black uppercase border-4 border-black px-2 py-0.5 tracking-widest ${
-                      isToday ? "bg-green-400 text-black" : "hidden"
+                      isToday
+                        ? isBillboardTheme
+                          ? "bg-yellow-400 text-black"
+                          : "bg-green-400 text-black"
+                        : "hidden"
                     }`}
                   >
                     TODAY
@@ -281,7 +376,10 @@ function App() {
                 >
                   {showCalendar ? "HIDE CALENDAR" : "SHOW CALENDAR"}
                 </button>
-                <div className="relative w-full sm:w-auto" style={{ minWidth: "160px" }}>
+                <div
+                  className="relative w-full sm:w-auto"
+                  style={{ minWidth: "160px" }}
+                >
                   <button
                     type="button"
                     onClick={() => setShowThemePicker((value) => !value)}
@@ -291,34 +389,35 @@ function App() {
                   </button>
                   {showThemePicker && (
                     <div className="absolute z-10 mt-2 min-w-full w-max bg-white border-4 border-black shadow-lg">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("festival");
-                          setShowThemePicker(false);
-                        }}
-                        className={`w-full px-4 py-2 text-sm font-black uppercase border-b-4 border-black last:border-b-0 transition-colors ${
-                          theme === "festival"
-                            ? "bg-black text-white"
-                            : "bg-white text-black hover:bg-yellow-200"
-                        }`}
-                      >
-                        FESTIVAL
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("showtime");
-                          setShowThemePicker(false);
-                        }}
-                        className={`w-full px-4 py-2 text-sm font-black uppercase border-b-4 border-black last:border-b-0 transition-colors ${
-                          theme === "showtime"
-                            ? "bg-black text-white"
-                            : "bg-white text-black hover:bg-yellow-200"
-                        }`}
-                      >
-                        SHOWTIME
-                      </button>
+                      {(
+                        [
+                          { label: "FESTIVAL", value: "festival" },
+                          { label: "SHOWTIME", value: "showtime" },
+                          { label: "BILLBOARD", value: "billboard" },
+                        ] as { label: string; value: ThemeMode }[]
+                      ).map((option, index, array) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setTheme(option.value);
+                            window.localStorage.setItem(
+                              "activeTheme",
+                              option.value
+                            );
+                            setShowThemePicker(false);
+                          }}
+                          className={`w-full px-4 py-2 text-sm font-black uppercase border-b-4 border-black ${
+                            index === array.length - 1 ? "last:border-b-0" : ""
+                          } transition-colors ${
+                            theme === option.value
+                              ? "bg-black text-white"
+                              : "bg-white text-black hover:bg-yellow-200"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -407,43 +506,120 @@ function App() {
             <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
               NO EVENTS FOUND
             </div>
-          ) : theme === "showtime" ? (
-            <div className="border-4 border-black bg-white">
-              {filteredData.map((event: CalendarInstance, index: number) => {
-                const parsed = parseEventTitle(event.title, event);
-                const venueLabel = getVenueLabel(event);
-                const tintClass =
-                  event.theatre === "viff"
-                    ? "bg-yellow-50"
-                    : event.theatre === "rio"
-                    ? "bg-red-50"
-                    : event.theatre === "cinematheque"
-                    ? "bg-blue-50"
-                    : "bg-gray-50";
-                return (
-                  <div
-                    key={index}
-                    className={`flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
-                  >
-                    <span className="text-lg sm:text-xl font-black text-black">
-                      {formatTime(event.start)}
-                    </span>
-                    <span className="text-gray-400">....</span>
-                    <button
-                      type="button"
-                      onClick={() => openEventLink(event)}
-                      className="flex-1 min-w-[200px] text-left uppercase italic tracking-tight transition-colors hover:text-yellow-500"
-                    >
-                      {parsed.title}
-                    </button>
-                    <span className="text-[11px] sm:text-xs border border-black px-2 py-0.5 tracking-widest">
-                      {venueLabel}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
           ) : (
+            theme === "showtime" && (
+              <div className="border-4 border-black bg-white">
+                {filteredData.map((event: CalendarInstance, index: number) => {
+                  const parsed = parseEventTitle(event.title, event);
+                  const venueLabel = getVenueLabel(event);
+                  const tintClass =
+                    event.theatre === "viff"
+                      ? "bg-yellow-50"
+                      : event.theatre === "rio"
+                      ? "bg-red-50"
+                      : event.theatre === "cinematheque"
+                      ? "bg-blue-50"
+                      : "bg-gray-50";
+                  return (
+                    <div
+                      key={index}
+                      className={`flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
+                    >
+                      <span className="text-lg sm:text-xl font-black text-black">
+                        {formatTime(event.start)}
+                      </span>
+                      <span className="text-gray-400">....</span>
+                      <button
+                        type="button"
+                        onClick={() => openEventLink(event)}
+                        className="flex-1 min-w-[200px] text-left uppercase italic tracking-tight transition-colors hover:text-yellow-500 text-base sm:text-lg font-lora"
+                      >
+                        {parsed.title}
+                      </button>
+                      <span className="text-[11px] sm:text-xs border border-black px-2 py-0.5 tracking-widest">
+                        {venueLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+          {theme === "billboard" && (
+            <>
+              <div className="border-8 border-black bg-black text-white relative overflow-hidden">
+                <div className="relative">
+                  <div className="flex gap-2 justify-between px-6 py-2">
+                    {Array.from({ length: 14 })!.map((_, bulbIndex) => (
+                      <span
+                        key={bulbIndex}
+                        className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
+                          bulbIndex % 3 === 0
+                            ? "bg-yellow-300"
+                            : bulbIndex % 3 === 1
+                            ? "bg-red-300"
+                            : "bg-blue-200"
+                        }`}
+                        style={{ animationDelay: `${bulbIndex * 0.12}s` }}
+                      />
+                    ))}
+                  </div>
+                  {filteredData.map(
+                    (event: CalendarInstance, index: number) => {
+                      const parsed = parseEventTitle(event.title, event);
+                      const venueLabel = getVenueLabel(event);
+                      const accentColor =
+                        event.theatre === "viff"
+                          ? "text-yellow-300"
+                          : event.theatre === "rio"
+                          ? "text-red-300"
+                          : event.theatre === "cinematheque"
+                          ? "text-blue-200"
+                          : "text-white";
+                      return (
+                        <div
+                          key={index}
+                          className="flex flex-col sm:flex-row items-stretch"
+                        >
+                          <div className="bg-white text-black px-2.5 py-2 text-xl sm:text-3xl font-black tracking-[0.2em] flex items-center justify-center w-full sm:w-32 sm:flex-none shadow-[inset_0_0_10px_rgba(0,0,0,0.2)] font-bebas">
+                            {formatTime(event.start)}
+                          </div>
+                          <div className="flex-1 px-4 py-3 grid gap-3 sm:grid-cols-[1fr_auto] items-center">
+                            <button
+                              type="button"
+                              onClick={() => openEventLink(event)}
+                              className={`text-left text-xl sm:text-3xl font-black uppercase tracking-[0.4em] ${accentColor} hover:text-yellow-300 transition-colors drop-shadow-[0_0_6px_rgba(248,231,28,0.25)] font-bebas`}
+                            >
+                              {parsed.title}
+                            </button>
+                            <div className="text-xs font-black uppercase tracking-[0.5em] text-white whitespace-nowrap font-bebas">
+                              {venueLabel}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2 justify-between px-6 py-2 border-x-8 border-b-8 border-black bg-black">
+                {Array.from({ length: 14 })!.map((_, bulbIndex) => (
+                  <span
+                    key={`bottom-${bulbIndex}`}
+                    className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
+                      bulbIndex % 3 === 0
+                        ? "bg-yellow-300"
+                        : bulbIndex % 3 === 1
+                        ? "bg-red-300"
+                        : "bg-blue-200"
+                    }`}
+                    style={{ animationDelay: `${0.1 + bulbIndex * 0.12}s` }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {theme === "festival" && (
             <div className="space-y-2">
               {filteredData.map((event: CalendarInstance, index: number) => {
                 const parsed = parseEventTitle(event.title, event);
@@ -505,7 +681,13 @@ function App() {
         </div>
       </div>
 
-      <footer className="border-t-8 border-white bg-black text-white mt-8">
+      <footer
+        className={`border-t-8 ${
+          isBillboardTheme ? "border-gray-700" : "border-white"
+        } ${isBillboardTheme ? "mt-0" : "mt-8"} ${
+          isBillboardTheme ? "bg-gray-800" : "bg-black"
+        } text-white`}
+      >
         <div className="max-w-6xl mx-auto px-4">
           <div className="relative py-6">
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8">

@@ -24,6 +24,29 @@ code {
   }
 }
 
+@keyframes bulb-blink {
+  0% {
+    opacity: 0.35;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 210, 0.25));
+  }
+  70% {
+    opacity: 0.55;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 210, 0.4));
+  }
+  85% {
+    opacity: 0.75;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 210, 0.6));
+  }
+  100% {
+    opacity: 0.35;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 210, 0.3));
+  }
+}
+
+.billboard-bulb {
+  animation: bulb-blink 2s linear infinite;
+}
+
 .marquee-track {
   display: inline-flex;
   min-width: 200%;
@@ -40,4 +63,12 @@ code {
 
 button:enabled {
   cursor: pointer;
+}
+
+.font-lora {
+  font-family: "Lora", serif;
+}
+
+.font-bebas {
+  font-family: "Bebas Neue", sans-serif;
 }
