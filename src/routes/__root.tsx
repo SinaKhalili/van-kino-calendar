@@ -17,13 +17,53 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Calendar",
+        name: "description",
+        content:
+          "Van Kino Calendar: aggregating Vancouver art cinema listings across venues.",
+      },
+      {
+        property: "og:title",
+        content: "Van Kino Calendar",
+      },
+      {
+        property: "og:description",
+        content:
+          "One-stop scroll for Vancouver art cinema listings across venues",
+      },
+      {
+        property: "og:type",
+        content: "website",
+      },
+      {
+        name: "twitter:card",
+        content: "summary",
+      },
+      {
+        name: "twitter:title",
+        content: "Van Kino Calendar",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Daily-updated Vancouver film calendar featuring VIFF, Cinematheque, Rio Theatre.",
+      },
+      {
+        title: "Van Kino Calendar",
       },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      {
+        rel: "icon",
+        href: "/favicon.ico",
+        type: "image/x-icon",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: "/favicon.ico",
       },
     ],
   }),
