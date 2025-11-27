@@ -59,6 +59,8 @@ type VenueFilter = "viff" | "rio" | "cinematheque";
 const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque"];
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
+type ThemeMode = "festival" | "showtime";
+
 function App() {
   const loaderData = Route.useLoaderData();
   const { events, dateIso, dateKey: loaderDateKey } = loaderData;
@@ -74,6 +76,8 @@ function App() {
     ...venueFilters,
   ]);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>("festival");
+  const [showThemePicker, setShowThemePicker] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [heartClickCount, setHeartClickCount] = useState(0);
@@ -135,6 +139,24 @@ function App() {
       : events.filter((event: CalendarInstance) =>
           activeVenues.includes(event.theatre as VenueFilter)
         );
+
+  const getVenueLabel = (event: CalendarInstance) => {
+    if (event.theatre === "rio") {
+      return "RIO THEATRE";
+    }
+    if (event.theatre === "cinematheque") {
+      return "THE CINEMATHEQUE";
+    }
+    return formatVenue(event.resourceId);
+  };
+
+  const openEventLink = (event: CalendarInstance) => {
+    const fallbackMatch = event.title.match(/href="([^"]+)">\s*More Info/);
+    const targetUrl = event.moreInfoUrl || fallbackMatch?.[1];
+    if (targetUrl) {
+      window.open(targetUrl, "_blank");
+    }
+  };
 
   const toggleVenue = (venue: VenueFilter) => {
     setActiveVenues((prev) => {
@@ -259,6 +281,47 @@ function App() {
                 >
                   {showCalendar ? "HIDE CALENDAR" : "SHOW CALENDAR"}
                 </button>
+                <div className="relative w-full sm:w-auto" style={{ minWidth: "160px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowThemePicker((value) => !value)}
+                    className="w-full bg-white text-black px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 transition-colors"
+                  >
+                    THEME
+                  </button>
+                  {showThemePicker && (
+                    <div className="absolute z-10 mt-2 min-w-full w-max bg-white border-4 border-black shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTheme("festival");
+                          setShowThemePicker(false);
+                        }}
+                        className={`w-full px-4 py-2 text-sm font-black uppercase border-b-4 border-black last:border-b-0 transition-colors ${
+                          theme === "festival"
+                            ? "bg-black text-white"
+                            : "bg-white text-black hover:bg-yellow-200"
+                        }`}
+                      >
+                        FESTIVAL
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTheme("showtime");
+                          setShowThemePicker(false);
+                        }}
+                        className={`w-full px-4 py-2 text-sm font-black uppercase border-b-4 border-black last:border-b-0 transition-colors ${
+                          theme === "showtime"
+                            ? "bg-black text-white"
+                            : "bg-white text-black hover:bg-yellow-200"
+                        }`}
+                      >
+                        SHOWTIME
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {debugEnabled && (
                   <button
                     onClick={() => setShowDebug(!showDebug)}
@@ -344,10 +407,47 @@ function App() {
             <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
               NO EVENTS FOUND
             </div>
+          ) : theme === "showtime" ? (
+            <div className="border-4 border-black bg-white">
+              {filteredData.map((event: CalendarInstance, index: number) => {
+                const parsed = parseEventTitle(event.title, event);
+                const venueLabel = getVenueLabel(event);
+                const tintClass =
+                  event.theatre === "viff"
+                    ? "bg-yellow-50"
+                    : event.theatre === "rio"
+                    ? "bg-red-50"
+                    : event.theatre === "cinematheque"
+                    ? "bg-blue-50"
+                    : "bg-gray-50";
+                return (
+                  <div
+                    key={index}
+                    className={`flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
+                  >
+                    <span className="text-lg sm:text-xl font-black text-black">
+                      {formatTime(event.start)}
+                    </span>
+                    <span className="text-gray-400">....</span>
+                    <button
+                      type="button"
+                      onClick={() => openEventLink(event)}
+                      className="flex-1 min-w-[200px] text-left uppercase italic tracking-tight transition-colors hover:text-yellow-500"
+                    >
+                      {parsed.title}
+                    </button>
+                    <span className="text-[11px] sm:text-xs border border-black px-2 py-0.5 tracking-widest">
+                      {venueLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="space-y-2">
               {filteredData.map((event: CalendarInstance, index: number) => {
                 const parsed = parseEventTitle(event.title, event);
+                const venueLabel = getVenueLabel(event);
                 return (
                   <div
                     key={index}
@@ -381,11 +481,7 @@ function App() {
                                 </span>
                               )}
                               <span className="border-2 border-black px-2 py-0.5 tracking-widest">
-                                {event.theatre === "rio"
-                                  ? "RIO THEATRE"
-                                  : event.theatre === "cinematheque"
-                                  ? "THE CINEMATHEQUE"
-                                  : formatVenue(event.resourceId)}
+                                {venueLabel}
                               </span>
                             </div>
                           </div>
@@ -394,18 +490,7 @@ function App() {
                         <div className="pt-2 border-t-4 border-black">
                           <button
                             className="bg-black text-white px-2 py-1 text-xs font-black uppercase tracking-[0.2em] hover:bg-yellow-400 hover:text-black border-4 border-black transition-colors w-full sm:w-auto"
-                            onClick={() => {
-                              if (event.moreInfoUrl) {
-                                window.open(event.moreInfoUrl, "_blank");
-                              } else {
-                                const moreInfoMatch = event.title.match(
-                                  /href="([^"]+)">\s*More Info/
-                                );
-                                if (moreInfoMatch) {
-                                  window.open(moreInfoMatch[1], "_blank");
-                                }
-                              }
-                            }}
+                            onClick={() => openEventLink(event)}
                           >
                             MORE INFO →
                           </button>
@@ -419,6 +504,7 @@ function App() {
           )}
         </div>
       </div>
+
       <footer className="border-t-8 border-white bg-black text-white mt-8">
         <div className="max-w-6xl mx-auto px-4">
           <div className="relative py-6">
