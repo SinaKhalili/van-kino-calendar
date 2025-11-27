@@ -221,7 +221,7 @@ function App() {
           </div>
 
           {showCalendar && (
-            <div className="mb-4">
+            <div className="mb-4 max-w-md">
               <Calendar
                 selectedDate={date}
                 onDateSelect={handleCalendarDateSelect}

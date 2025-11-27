@@ -238,7 +238,7 @@ export default function Header() {
 
   return (
     <header className="w-full bg-black border-b-8 border-black shadow-[0_8px_0_rgba(0,0,0,0.5)]">
-      <h1 className="block w-full border-y-4 border-yellow-300 bg-yellow-200 text-black font-black uppercase tracking-[0.35em] text-sm sm:text-lg py-3 overflow-hidden">
+      <h1 className="block w-full border-y-4 border-yellow-200 bg-yellow-200 text-black font-black uppercase tracking-[0.35em] text-sm sm:text-lg py-3 overflow-hidden">
         <div className="overflow-hidden w-full">
           <div className="marquee-track px-4">
             <span className="marquee-segment">{marqueeText}</span>
