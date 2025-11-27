@@ -28,24 +28,6 @@ export const getEventsForDate = createServerFn({
 
   const targetDate = parseDateKey(requestedKey) ?? new Date();
 
-  const cache = typeof caches !== "undefined" ? caches.default : undefined;
-  const cacheKey = cache
-    ? new Request(`https://vankino.calendar/cache/${requestedKey}`)
-    : undefined;
-
-  if (cache && cacheKey) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      try {
-        return (await cached.clone().json()) as EventResponsePayload;
-      } catch (
-        error
-      ) {
-        await cache.delete(cacheKey);
-      }
-    }
-  }
-
   const [viffEvents, rioEvents, cinemathequeEvents] = await Promise.all([
     fetchViffEvents(targetDate, requestedKey),
     fetchRioEvents(targetDate, requestedKey),
@@ -61,18 +43,6 @@ export const getEventsForDate = createServerFn({
     dateIso: targetDate.toISOString(),
     dateKey: requestedKey,
   } satisfies EventResponsePayload;
-
-  if (cache && cacheKey) {
-    await cache.put(
-      cacheKey,
-      new Response(JSON.stringify(payload), {
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=900",
-        },
-      })
-    );
-  }
 
   return payload;
 });

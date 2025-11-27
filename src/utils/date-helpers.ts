@@ -1,27 +1,64 @@
 export const PST_TIME_ZONE = "America/Vancouver";
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
-const dateKeyFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: PST_TIME_ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
-const displayFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: PST_TIME_ZONE,
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
+const WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: PST_TIME_ZONE,
-  weekday: "short",
-});
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
 
-function getPart(parts: Intl.DateTimeFormatPart[], type: string) {
-  return parts.find((part) => part.type === type)?.value ?? "";
+function getNthWeekdayOfMonth(
+  year: number,
+  monthIndex: number,
+  weekday: number,
+  nth: number
+) {
+  const firstDay = new Date(Date.UTC(year, monthIndex, 1));
+  const firstWeekday = firstDay.getUTCDay();
+  const offset = (7 + weekday - firstWeekday) % 7;
+  return 1 + offset + (nth - 1) * 7;
+}
+
+function getPacificOffsetMinutes(date: Date): number {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return -8 * 60;
+  }
+
+  const year = date.getUTCFullYear();
+  const dstStartDay = getNthWeekdayOfMonth(year, 2, 0, 2); // Second Sunday in March
+  const dstEndDay = getNthWeekdayOfMonth(year, 10, 0, 1); // First Sunday in November
+  const dstStartUtc = Date.UTC(year, 2, dstStartDay, 10, 0, 0); // 2am PST -> 10am UTC
+  const dstEndUtc = Date.UTC(year, 10, dstEndDay, 9, 0, 0); // 2am PDT -> 9am UTC
+  const timestamp = date.getTime();
+
+  if (timestamp >= dstStartUtc && timestamp < dstEndUtc) {
+    return -7 * 60;
+  }
+
+  return -8 * 60;
+}
+
+function convertToPacificDate(date: Date): Date {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return new Date(NaN);
+  }
+  const offsetMinutes = getPacificOffsetMinutes(date);
+  return new Date(date.getTime() + offsetMinutes * 60 * 1000);
 }
 
 export function isValidDateKey(value?: string): value is string {
@@ -29,11 +66,8 @@ export function isValidDateKey(value?: string): value is string {
 }
 
 export function formatDateKey(date: Date): string {
-  const parts = dateKeyFormatter.formatToParts(date);
-  return `${getPart(parts, "year")}-${getPart(parts, "month")}-${getPart(
-    parts,
-    "day"
-  )}`;
+  const { year, month, day } = getPstDateComponents(date);
+  return `${year}-${pad(month)}-${pad(day)}`;
 }
 
 export function parseDateKey(dateKey: string): Date | null {
@@ -51,57 +85,31 @@ export function parseDateKey(dateKey: string): Date | null {
 
   // Create date at noon PST (not UTC) to avoid timezone issues
   // Format: YYYY-MM-DDTHH:mm:ss-08:00 (PST) or -07:00 (PDT)
-  const dateStr = `${yearStr}-${monthStr.padStart(2, "0")}-${dayStr.padStart(
-    2,
-    "0"
-  )}T12:00:00`;
-  // Try PST first (UTC-8)
-  let testDate = new Date(`${dateStr}-08:00`);
-  const testParts = dateKeyFormatter.formatToParts(testDate);
-  const testYear = parseInt(getPart(testParts, "year"));
-  const testMonth = parseInt(getPart(testParts, "month"));
-  const testDay = parseInt(getPart(testParts, "day"));
+  const dateStr = `${yearStr}-${pad(month)}-${pad(day)}T12:00:00`;
+  const candidates = ["-08:00", "-07:00"].map((offset) =>
+    new Date(`${dateStr}${offset}`)
+  );
 
-  // If PST gives us the correct date, use it
-  if (testYear === year && testMonth === month && testDay === day) {
-    return testDate;
-  }
-
-  // Otherwise try PDT (UTC-7)
-  testDate = new Date(`${dateStr}-07:00`);
-  const testPartsPDT = dateKeyFormatter.formatToParts(testDate);
-  const testYearPDT = parseInt(getPart(testPartsPDT, "year"));
-  const testMonthPDT = parseInt(getPart(testPartsPDT, "month"));
-  const testDayPDT = parseInt(getPart(testPartsPDT, "day"));
-
-  // If PDT gives us the correct date, use it
-  if (testYearPDT === year && testMonthPDT === month && testDayPDT === day) {
-    return testDate;
+  for (const candidate of candidates) {
+    if (formatDateKey(candidate) === dateKey) {
+      return candidate;
+    }
   }
 
   // Fallback to PST (shouldn't happen, but just in case)
-  return new Date(`${dateStr}-08:00`);
+  return candidates[0];
 }
 
 // Helper to get PST date components from any date
 export function getPstDateComponents(date: Date) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PST_TIME_ZONE,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  });
-  const parts = formatter.formatToParts(date);
+  const pstDate = convertToPacificDate(date);
   return {
-    year: parseInt(getPart(parts, "year")),
-    month: parseInt(getPart(parts, "month")),
-    day: parseInt(getPart(parts, "day")),
-    hour: parseInt(getPart(parts, "hour")),
-    minute: parseInt(getPart(parts, "minute")),
-    second: parseInt(getPart(parts, "second")),
+    year: pstDate.getUTCFullYear(),
+    month: pstDate.getUTCMonth() + 1,
+    day: pstDate.getUTCDate(),
+    hour: pstDate.getUTCHours(),
+    minute: pstDate.getUTCMinutes(),
+    second: pstDate.getUTCSeconds(),
   };
 }
 
@@ -115,11 +123,14 @@ export function addDaysInPst(date: Date, days: number): Date {
 }
 
 export function formatPstDisplay(date: Date): string {
-  return displayFormatter.format(date);
+  const { year, month, day } = getPstDateComponents(date);
+  const monthName = MONTH_NAMES[month - 1] ?? "";
+  return `${monthName} ${day}, ${year}`;
 }
 
 export function getWeekdayLabel(date: Date): string {
-  return weekdayFormatter.format(date).slice(0, 3).toUpperCase();
+  const pstDate = convertToPacificDate(date);
+  return WEEKDAY_LABELS[pstDate.getUTCDay()] ?? "";
 }
 
 export function getTodayDateKey(): string {

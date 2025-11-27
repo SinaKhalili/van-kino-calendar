@@ -1,5 +1,5 @@
 import { CalendarInstance } from "./types";
-import { PST_TIME_ZONE } from "./date-helpers";
+import { getPstDateComponents } from "./date-helpers";
 
 function decodeHtmlEntities(text: string): string {
   return text
@@ -71,12 +71,13 @@ export function parseEventTitle(html: string, event: CalendarInstance) {
 
 export function formatTime(dateString: string) {
   const date = new Date(dateString);
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: PST_TIME_ZONE,
-  });
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const { hour, minute } = getPstDateComponents(date);
+  const hours12 = hour % 12 || 12;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  return `${hours12}:${minute.toString().padStart(2, "0")} ${suffix}`;
 }
 
 export function formatVenue(resourceId: string) {

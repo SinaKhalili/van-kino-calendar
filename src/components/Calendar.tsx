@@ -3,7 +3,7 @@ import {
   formatDateKey,
   parseDateKey,
   getTodayDateKey,
-  PST_TIME_ZONE,
+  getPstDateComponents,
 } from "../utils/date-helpers";
 
 interface CalendarProps {
@@ -12,20 +12,20 @@ interface CalendarProps {
   onClose?: () => void;
 }
 
-// Helper to get PST date components
-function getPstDateComponents(date: Date) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PST_TIME_ZONE,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  });
-  const parts = formatter.formatToParts(date);
-  const year = parseInt(parts.find((p) => p.type === "year")?.value || "0");
-  const month = parseInt(parts.find((p) => p.type === "month")?.value || "0");
-  const day = parseInt(parts.find((p) => p.type === "day")?.value || "0");
-  return { year, month, day };
-}
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
 // Helper to create a date in PST (at noon PST to avoid timezone edge cases)
 function createPstDate(year: number, month: number, day: number): Date {
@@ -91,14 +91,7 @@ export default function Calendar({
   // Get the day of the week for the first day (0 = Sunday, 6 = Saturday) in PST
   const firstDayOfWeek = firstDay.getUTCDay();
 
-  // Month and year display
-  const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: PST_TIME_ZONE,
-    month: "long",
-    year: "numeric",
-  });
-
-  const monthYear = monthYearFormatter.format(viewMonth);
+  const monthYear = `${MONTH_NAMES[viewPst.month - 1] ?? ""} ${viewPst.year}`;
   const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 
   const handlePrevMonth = () => {
