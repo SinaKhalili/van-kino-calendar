@@ -1,5 +1,6 @@
 import { CalendarInstance } from "./types";
 import * as cheerio from "cheerio";
+import { getPstDateComponents } from "./date-helpers";
 
 const MONTH_NAMES = [
   "January",
@@ -40,11 +41,31 @@ export async function fetchCinemathequeEvents(
   const html = await response.text();
   const $ = cheerio.load(html);
 
-  const targetYear = date.getFullYear();
-  const targetMonth = date.getMonth();
-  const targetDay = date.getDate();
-  const targetDow = DAY_NAMES[date.getDay()];
-  const targetMonthName = MONTH_NAMES[targetMonth];
+  const pst = getPstDateComponents(date);
+  const targetYear = pst.year;
+  const targetMonth = pst.month;
+  const targetDay = pst.day;
+  // Get weekday in PST - create a date at noon PST and get its weekday
+  const pstDateStr = `${targetYear}-${String(targetMonth).padStart(
+    2,
+    "0"
+  )}-${String(targetDay).padStart(2, "0")}T12:00:00`;
+  let pstDate = new Date(`${pstDateStr}-08:00`);
+  const verifyPst = getPstDateComponents(pstDate);
+  if (
+    verifyPst.year !== targetYear ||
+    verifyPst.month !== targetMonth ||
+    verifyPst.day !== targetDay
+  ) {
+    pstDate = new Date(`${pstDateStr}-07:00`);
+  }
+  const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Vancouver",
+    weekday: "long",
+  });
+  const weekdayName = weekdayFormatter.format(pstDate).toLowerCase();
+  const targetDow = DAY_NAMES.findIndex((d) => d === weekdayName);
+  const targetMonthName = MONTH_NAMES[targetMonth - 1];
 
   // Find the <li> for the target day
   const $dayLi = $(
@@ -103,15 +124,24 @@ export async function fetchCinemathequeEvents(
       return;
     }
 
-    // Construct a Date for the target date in Pacific time (UTC-8)
-    const monthStr = String(targetMonth + 1).padStart(2, "0");
+    // Construct a Date for the target date in Pacific time
+    const monthStr = String(targetMonth).padStart(2, "0");
     const dayStr = String(targetDay).padStart(2, "0");
-    const startDate = new Date(
-      `${targetYear}-${monthStr}-${dayStr}T${String(hours).padStart(
-        2,
-        "0"
-      )}:${String(minutes).padStart(2, "0")}:00-08:00`
-    );
+    // Try PST first, then PDT if needed
+    const dateStr = `${targetYear}-${monthStr}-${dayStr}T${String(
+      hours
+    ).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
+    let startDate = new Date(`${dateStr}-08:00`);
+    // Verify it's the correct date in PST
+    const verifyPst = getPstDateComponents(startDate);
+    if (
+      verifyPst.year !== targetYear ||
+      verifyPst.month !== targetMonth ||
+      verifyPst.day !== targetDay
+    ) {
+      // Try PDT
+      startDate = new Date(`${dateStr}-07:00`);
+    }
     const endDate = new Date(startDate.getTime() + 120 * 60 * 1000); // +2 hours
 
     events.push({

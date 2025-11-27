@@ -1,5 +1,5 @@
 import { CalendarInstance } from "./types";
-import { formatDateKey } from "./date-helpers";
+import { formatDateKey, getPstDateComponents } from "./date-helpers";
 
 function formatDateForViff(date: Date): string {
   const months = [
@@ -16,9 +16,10 @@ function formatDateForViff(date: Date): string {
     "November",
     "December",
   ];
-  const month = months[date.getMonth()];
-  const day = date.getDate();
-  const year = date.getFullYear();
+  const pst = getPstDateComponents(date);
+  const month = months[pst.month - 1];
+  const day = pst.day;
+  const year = pst.year;
   return `${month}+${day}+${year}`;
 }
 

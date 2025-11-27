@@ -60,7 +60,8 @@ const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque"];
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 function App() {
-  const { events, dateIso, dateKey: loaderDateKey } = Route.useLoaderData();
+  const loaderData = Route.useLoaderData();
+  const { events, dateIso, dateKey: loaderDateKey } = loaderData;
   const search = Route.useSearch();
   const fallbackDate = parseDateKey(loaderDateKey) ?? new Date(dateIso);
   const fallbackKey = loaderDateKey || formatDateKey(fallbackDate);
@@ -73,7 +74,41 @@ function App() {
     ...venueFilters,
   ]);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState(false);
+  const [heartClickCount, setHeartClickCount] = useState(0);
+  const [heartClickTimeout, setHeartClickTimeout] =
+    useState<NodeJS.Timeout | null>(null);
   const isLoading = Boolean(pendingKey);
+
+  useEffect(() => {
+    const enabled = localStorage.getItem("debugEnabled") === "true";
+    setDebugEnabled(enabled);
+  }, []);
+
+  const handleHeartClick = () => {
+    if (heartClickTimeout) {
+      clearTimeout(heartClickTimeout);
+    }
+
+    const newCount = heartClickCount + 1;
+    setHeartClickCount(newCount);
+
+    if (newCount >= 3) {
+      const currentEnabled = localStorage.getItem("debugEnabled") === "true";
+      const newEnabled = !currentEnabled;
+      localStorage.setItem("debugEnabled", String(newEnabled));
+      setDebugEnabled(newEnabled);
+      setHeartClickCount(0);
+      setHeartClickTimeout(null);
+    } else {
+      const timeout = setTimeout(() => {
+        setHeartClickCount(0);
+        setHeartClickTimeout(null);
+      }, 2000);
+      setHeartClickTimeout(timeout);
+    }
+  };
   const weekdayLabel = getWeekdayLabel(date);
   const weekdayIndex = weekdayLabels.indexOf(weekdayLabel);
   const activeWeekday = weekdayIndex === -1 ? 0 : weekdayIndex;
@@ -85,6 +120,14 @@ function App() {
       setPendingKey(null);
     }
   }, [loaderDateKey, pendingKey]);
+
+  useEffect(() => {
+    return () => {
+      if (heartClickTimeout) {
+        clearTimeout(heartClickTimeout);
+      }
+    };
+  }, [heartClickTimeout]);
 
   const filteredData =
     activeVenues.length === 0
@@ -216,6 +259,14 @@ function App() {
                 >
                   {showCalendar ? "HIDE CALENDAR" : "SHOW CALENDAR"}
                 </button>
+                {debugEnabled && (
+                  <button
+                    onClick={() => setShowDebug(!showDebug)}
+                    className="bg-red-500 text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-red-600 transition-colors w-full sm:w-auto"
+                  >
+                    {showDebug ? "HIDE DEBUG" : "SHOW DEBUG"}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -227,6 +278,25 @@ function App() {
                 onDateSelect={handleCalendarDateSelect}
                 onClose={() => setShowCalendar(false)}
               />
+            </div>
+          )}
+
+          {showDebug && debugEnabled && (
+            <div className="mb-4 border-4 border-black bg-white p-4">
+              <div className="mb-2">
+                <h2 className="text-lg font-black uppercase mb-2">
+                  DEBUG JSON RESPONSE
+                </h2>
+                <button
+                  onClick={() => setShowDebug(false)}
+                  className="bg-black text-white px-3 py-1 text-xs font-black uppercase border-2 border-black hover:bg-red-500 transition-colors"
+                >
+                  CLOSE
+                </button>
+              </div>
+              <pre className="bg-gray-100 p-4 border-2 border-black overflow-auto text-xs font-mono">
+                {JSON.stringify(loaderData, null, 2)}
+              </pre>
             </div>
           )}
 
@@ -295,9 +365,6 @@ function App() {
                           <div className="text-2xl sm:text-3xl font-black text-black leading-none">
                             {formatTime(event.start)}
                           </div>
-                          <div className="text-xs sm:text-sm font-bold text-black mt-1 uppercase tracking-wide">
-                            {formatTime(event.end)}
-                          </div>
                         </div>
                       </div>
 
@@ -364,7 +431,15 @@ function App() {
               </div>
               <div className="hidden sm:block absolute left-1/3 top-0 bottom-0 w-1 bg-white -translate-x-1/2"></div>
               <div className="text-center text-xs sm:text-sm font-black sm:flex-1 uppercase">
-                made with 💚 in vancouver by{" "}
+                made with{" "}
+                <button
+                  onClick={handleHeartClick}
+                  className="cursor-pointer hover:scale-110 transition-transform inline-block"
+                  aria-label="Toggle debug mode"
+                >
+                  💚
+                </button>{" "}
+                in vancouver by{" "}
                 <a
                   href="https://sina.town"
                   target="_blank"

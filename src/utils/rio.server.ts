@@ -1,18 +1,27 @@
 import { CalendarInstance } from "./types";
-import { formatDateKey } from "./date-helpers";
+import { formatDateKey, parseDateKey } from "./date-helpers";
 
 export async function fetchRioEvents(
   date: Date = new Date(),
   targetKey?: string
 ): Promise<CalendarInstance[]> {
   // Rio API needs a date range, so we'll fetch a week around the target date
-  const startDate = new Date(date);
-  startDate.setDate(startDate.getDate() - 7);
-  startDate.setHours(7, 0, 0, 0);
+  // Use PST-aware date operations
+  const dateKey = targetKey ?? formatDateKey(date);
+  const baseDate = parseDateKey(dateKey);
+  if (!baseDate) {
+    return [];
+  }
 
-  const endDate = new Date(date);
-  endDate.setDate(endDate.getDate() + 7);
-  endDate.setHours(7, 59, 59, 999);
+  // Create start date (7 days before) at 7:00 AM PST
+  const startDate = new Date(baseDate);
+  startDate.setUTCDate(startDate.getUTCDate() - 7);
+  startDate.setUTCHours(15, 0, 0, 0); // 15:00 UTC = 7:00 PST (approx, DST handled by parseDateKey)
+
+  // Create end date (7 days after) at 7:59 AM PST
+  const endDate = new Date(baseDate);
+  endDate.setUTCDate(endDate.getUTCDate() + 7);
+  endDate.setUTCHours(15, 59, 59, 999);
 
   const startStr = startDate.toISOString().replace(/:/g, "%3A");
   const endStr = endDate.toISOString().replace(/:/g, "%3A");
