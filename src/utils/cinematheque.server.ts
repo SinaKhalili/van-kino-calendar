@@ -27,7 +27,8 @@ const DAY_NAMES = [
 ];
 
 export async function fetchCinemathequeEvents(
-  date: Date = new Date()
+  date: Date = new Date(),
+  _targetKey?: string
 ): Promise<CalendarInstance[]> {
   const response = await fetch("https://thecinematheque.ca/films/calendar");
   const events: CalendarInstance[] = [];

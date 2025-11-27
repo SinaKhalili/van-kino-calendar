@@ -1,7 +1,9 @@
 import { CalendarInstance } from "./types";
+import { formatDateKey } from "./date-helpers";
 
 export async function fetchRioEvents(
-  date: Date = new Date()
+  date: Date = new Date(),
+  targetKey?: string
 ): Promise<CalendarInstance[]> {
   // Rio API needs a date range, so we'll fetch a week around the target date
   const startDate = new Date(date);
@@ -24,11 +26,7 @@ export async function fetchRioEvents(
     const json = await response.json();
     const array = Array.isArray(json) ? json : [];
 
-    // Parse Rio events - each listing is already a showtime
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
-    const nextDay = new Date(targetDate);
-    nextDay.setDate(nextDay.getDate() + 1);
+    const targetDateKey = targetKey ?? formatDateKey(date);
 
     array.forEach((listing: any) => {
       const startDate = new Date(listing.start_time);
@@ -36,8 +34,7 @@ export async function fetchRioEvents(
         ? new Date(listing.end_time)
         : new Date(startDate.getTime() + 120 * 60000); // Default 2 hours if no end time
 
-      // Only include events on the target date (check if start is within the day)
-      if (startDate >= targetDate && startDate < nextDay) {
+      if (formatDateKey(startDate) === targetDateKey) {
         events.push({
           start: startDate.toISOString(),
           end: endDate.toISOString(),

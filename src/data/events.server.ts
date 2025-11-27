@@ -4,7 +4,6 @@ import { fetchViffEvents } from "../utils/viff.server";
 import { fetchRioEvents } from "../utils/rio.server";
 import { fetchCinemathequeEvents } from "../utils/cinematheque.server";
 import {
-  formatDateKey,
   getTodayDateKey,
   isValidDateKey,
   parseDateKey,
@@ -27,25 +26,53 @@ export const getEventsForDate = createServerFn({
     ? data!.date!
     : getTodayDateKey();
 
-  const baseDate = parseDateKey(requestedKey) ?? new Date();
-  const targetDate = new Date(baseDate);
-  targetDate.setUTCHours(0, 0, 0, 0);
+  const targetDate = parseDateKey(requestedKey) ?? new Date();
 
-  const activeDateKey = formatDateKey(targetDate);
+  const cache = typeof caches !== "undefined" ? caches.default : undefined;
+  const cacheKey = cache
+    ? new Request(`https://vankino.calendar/cache/${requestedKey}`)
+    : undefined;
+
+  if (cache && cacheKey) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      try {
+        return (await cached.clone().json()) as EventResponsePayload;
+      } catch (
+        error
+      ) {
+        await cache.delete(cacheKey);
+      }
+    }
+  }
 
   const [viffEvents, rioEvents, cinemathequeEvents] = await Promise.all([
-    fetchViffEvents(targetDate),
-    fetchRioEvents(targetDate),
-    fetchCinemathequeEvents(targetDate),
+    fetchViffEvents(targetDate, requestedKey),
+    fetchRioEvents(targetDate, requestedKey),
+    fetchCinemathequeEvents(targetDate, requestedKey),
   ]);
 
   const events = [...viffEvents, ...rioEvents, ...cinemathequeEvents].sort(
     (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
   );
 
-  return {
+  const payload = {
     events,
     dateIso: targetDate.toISOString(),
-    dateKey: activeDateKey,
+    dateKey: requestedKey,
   } satisfies EventResponsePayload;
+
+  if (cache && cacheKey) {
+    await cache.put(
+      cacheKey,
+      new Response(JSON.stringify(payload), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=900",
+        },
+      })
+    );
+  }
+
+  return payload;
 });
