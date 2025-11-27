@@ -13,3 +13,30 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
     monospace;
 }
+
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee-track {
+  display: inline-flex;
+  min-width: 200%;
+  animation: marquee-scroll 600s linear infinite;
+}
+
+.marquee-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-right: 4rem;
+  white-space: nowrap;
+}
+
+button:enabled {
+  cursor: pointer;
+}

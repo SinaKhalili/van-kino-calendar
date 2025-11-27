@@ -1,118 +1,338 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { parseEventTitle, formatTime, formatVenue } from "../utils/parsers";
+import { getEventsForDate } from "../data/events.server";
+import { CalendarInstance } from "../utils/types";
 import {
-  Zap,
-  Server,
-  Route as RouteIcon,
-  Shield,
-  Waves,
-  Sparkles,
-} from 'lucide-react'
+  addDaysInPst,
+  formatDateKey,
+  formatPstDisplay,
+  getTodayDateKey,
+  getWeekdayLabel,
+  isValidDateKey,
+  parseDateKey,
+} from "../utils/date-helpers";
 
-export const Route = createFileRoute('/')({ component: App })
+type SearchSchema = {
+  date?: string;
+};
+
+export const Route = createFileRoute("/")({
+  component: App,
+  validateSearch: (search: Record<string, unknown>): SearchSchema => {
+    return {
+      date: isValidDateKey(search.date as string)
+        ? (search.date as string)
+        : undefined,
+    };
+  },
+  loaderDeps: ({ search }: { search: { date?: string } }) => ({
+    date: search.date,
+  }),
+  loader: async ({ deps }) => {
+    const result = await (getEventsForDate as any)({
+      data: deps.date ? { date: deps.date } : undefined,
+    });
+
+    return {
+      events: result.events,
+      dateIso: result.dateIso,
+      dateKey: result.dateKey,
+    };
+  },
+});
+
+type FilterType = "all" | "viff" | "rio" | "cinematheque";
+const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 function App() {
-  const features = [
-    {
-      icon: <Zap className="w-12 h-12 text-cyan-400" />,
-      title: 'Powerful Server Functions',
-      description:
-        'Write server-side code that seamlessly integrates with your client components. Type-safe, secure, and simple.',
-    },
-    {
-      icon: <Server className="w-12 h-12 text-cyan-400" />,
-      title: 'Flexible Server Side Rendering',
-      description:
-        'Full-document SSR, streaming, and progressive enhancement out of the box. Control exactly what renders where.',
-    },
-    {
-      icon: <RouteIcon className="w-12 h-12 text-cyan-400" />,
-      title: 'API Routes',
-      description:
-        'Build type-safe API endpoints alongside your application. No separate backend needed.',
-    },
-    {
-      icon: <Shield className="w-12 h-12 text-cyan-400" />,
-      title: 'Strongly Typed Everything',
-      description:
-        'End-to-end type safety from server to client. Catch errors before they reach production.',
-    },
-    {
-      icon: <Waves className="w-12 h-12 text-cyan-400" />,
-      title: 'Full Streaming Support',
-      description:
-        'Stream data from server to client progressively. Perfect for AI applications and real-time updates.',
-    },
-    {
-      icon: <Sparkles className="w-12 h-12 text-cyan-400" />,
-      title: 'Next Generation Ready',
-      description:
-        'Built from the ground up for modern web applications. Deploy anywhere JavaScript runs.',
-    },
-  ]
+  const { events, dateIso, dateKey: loaderDateKey } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const fallbackDate = parseDateKey(loaderDateKey) ?? new Date(dateIso);
+  const fallbackKey = loaderDateKey || formatDateKey(fallbackDate);
+  const activeKey = isValidDateKey(search.date) ? search.date : fallbackKey;
+  const date = parseDateKey(activeKey) ?? fallbackDate;
+  const navigate = useNavigate();
+  const [filter, setFilter] = useState<FilterType>("all");
+  const weekdayLabel = getWeekdayLabel(date);
+  const weekdayIndex = weekdayLabels.indexOf(weekdayLabel);
+  const activeWeekday = weekdayIndex === -1 ? 0 : weekdayIndex;
+  const todayKey = getTodayDateKey();
+  const isToday = activeKey === todayKey;
+
+  const filteredData = events.filter((event: CalendarInstance) => {
+    if (filter === "all") return true;
+    return event.theatre === filter;
+  });
+
+  const handleDateChange = (days: number) => {
+    const newDate = addDaysInPst(date, days);
+    const nextKey = formatDateKey(newDate);
+    navigate({
+      to: "/",
+      search: {
+        date: nextKey,
+      },
+    });
+  };
+
+  const handleTodayClick = () => {
+    if (isToday) {
+      return;
+    }
+
+    navigate({
+      to: "/",
+      search: {
+        date: todayKey,
+      },
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
-      <section className="relative py-20 px-6 text-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-purple-500/10"></div>
-        <div className="relative max-w-5xl mx-auto">
-          <div className="flex items-center justify-center gap-6 mb-6">
-            <img
-              src="/tanstack-circle-logo.png"
-              alt="TanStack Logo"
-              className="w-24 h-24 md:w-32 md:h-32"
-            />
-            <h1 className="text-6xl md:text-7xl font-black text-white [letter-spacing:-0.08em]">
-              <span className="text-gray-300">TANSTACK</span>{' '}
-              <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                START
-              </span>
-            </h1>
-          </div>
-          <p className="text-2xl md:text-3xl text-gray-300 mb-4 font-light">
-            The framework for next generation AI applications
-          </p>
-          <p className="text-lg text-gray-400 max-w-3xl mx-auto mb-8">
-            Full-stack framework powered by TanStack Router for React and Solid.
-            Build modern applications with server functions, streaming, and type
-            safety.
-          </p>
-          <div className="flex flex-col items-center gap-4">
-            <a
-              href="https://tanstack.com/start"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-8 py-3 bg-cyan-500 hover:bg-cyan-600 text-white font-semibold rounded-lg transition-colors shadow-lg shadow-cyan-500/50"
-            >
-              Documentation
-            </a>
-            <p className="text-gray-400 text-sm mt-2">
-              Begin your TanStack Start journey by editing{' '}
-              <code className="px-2 py-1 bg-slate-700 rounded text-cyan-400">
-                /src/routes/index.tsx
-              </code>
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 px-6 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 hover:border-cyan-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-500/10"
-            >
-              <div className="mb-4">{feature.icon}</div>
-              <h3 className="text-xl font-semibold text-white mb-3">
-                {feature.title}
-              </h3>
-              <p className="text-gray-400 leading-relaxed">
-                {feature.description}
-              </p>
+    <>
+      <div className="min-h-screen bg-white text-black p-4">
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-3">
+            <div className="hidden sm:grid grid-cols-7 gap-2">
+              {weekdayLabels.map((label, index) => (
+                <div
+                  key={label}
+                  className={`text-center text-xs font-black uppercase border-4 border-black py-1 tracking-wider ${
+                    index === activeWeekday
+                      ? "bg-black text-white"
+                      : "bg-white text-black"
+                  }`}
+                >
+                  {label}
+                </div>
+              ))}
             </div>
-          ))}
+            <div
+              className="flex sm:hidden gap-2 overflow-x-auto pb-1"
+              role="tablist"
+            >
+              {weekdayLabels.map((label, index) => (
+                <div
+                  key={label}
+                  className={`min-w-[64px] text-center text-[10px] font-black uppercase border-4 border-black py-1 tracking-wider ${
+                    index === activeWeekday
+                      ? "bg-black text-white"
+                      : "bg-white text-black"
+                  }`}
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mb-4">
+            <div className="border-8 border-black bg-yellow-200 px-4 py-3 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex flex-col">
+                  <span className="text-[11px] font-black uppercase tracking-[0.5em]">
+                    LIVE LISTINGS / PST
+                  </span>
+                  <h1 className="text-3xl sm:text-5xl font-black uppercase leading-none">
+                    VAN KINO CALENDAR
+                  </h1>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black uppercase">Vancouver, BC</p>
+                  <p className="text-xs font-black uppercase tracking-widest">
+                    FILM CALENDAR AGGREGATOR
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 border-4 border-black bg-white px-3 py-2">
+                <button
+                  onClick={() => handleDateChange(-1)}
+                  className="bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 hover:text-black transition-colors w-full sm:w-auto"
+                >
+                  ←
+                </button>
+                <div className="flex flex-col items-center gap-1 text-center flex-1">
+                  <span className="text-xs font-black uppercase tracking-[0.5em]">
+                    PROGRAMME DATE
+                  </span>
+                  <p className="text-4xl font-black uppercase tracking-tighter">
+                    {formatPstDisplay(date)}
+                  </p>
+                  <span
+                    className={`text-xs font-black uppercase border-4 border-black px-2 py-0.5 tracking-widest ${
+                      isToday
+                        ? "bg-green-400 text-black"
+                        : "bg-white text-black"
+                    }`}
+                  >
+                    {isToday
+                      ? "TODAY"
+                      : `${
+                          weekdayLabels[activeWeekday] ?? weekdayLabel
+                        } SCHEDULE`}
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={handleTodayClick}
+                    disabled={isToday}
+                    className={`px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+                      isToday
+                        ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                        : "bg-white text-black hover:bg-yellow-400"
+                    }`}
+                  >
+                    TODAY
+                  </button>
+                  <button
+                    onClick={() => handleDateChange(1)}
+                    className="bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 hover:text-black transition-colors"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:flex gap-2 mb-4">
+            <button
+              onClick={() => setFilter("all")}
+              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+                filter === "all"
+                  ? "bg-black text-white"
+                  : "bg-white text-black hover:bg-yellow-400"
+              }`}
+            >
+              ALL
+            </button>
+            <button
+              onClick={() => setFilter("viff")}
+              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+                filter === "viff"
+                  ? "bg-black text-white"
+                  : "bg-white text-black hover:bg-yellow-400"
+              }`}
+            >
+              VIFF
+            </button>
+            <button
+              onClick={() => setFilter("rio")}
+              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+                filter === "rio"
+                  ? "bg-black text-white"
+                  : "bg-white text-black hover:bg-yellow-400"
+              }`}
+            >
+              RIO
+            </button>
+            <button
+              onClick={() => setFilter("cinematheque")}
+              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+                filter === "cinematheque"
+                  ? "bg-black text-white"
+                  : "bg-white text-black hover:bg-yellow-400"
+              }`}
+            >
+              CINEMATHEQUE
+            </button>
+          </div>
+
+          {filteredData.length === 0 ? (
+            <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
+              NO EVENTS FOUND
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredData.map((event: CalendarInstance, index: number) => {
+                const parsed = parseEventTitle(event.title, event);
+                return (
+                  <div
+                    key={index}
+                    className={`border-4 border-black p-4 transition-colors ${
+                      event.theatre === "viff"
+                        ? "bg-yellow-50 hover:bg-yellow-100"
+                        : event.theatre === "rio"
+                        ? "bg-red-50 hover:bg-red-100"
+                        : "bg-blue-50 hover:bg-blue-100"
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                      <div className="flex sm:block items-center gap-2 border-black sm:border-r-4 border-b-4 sm:border-b-0 pr-0 sm:pr-4 pb-3 sm:pb-0">
+                        <div>
+                          <div className="text-2xl sm:text-3xl font-black text-black leading-none">
+                            {formatTime(event.start)}
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-black mt-1 uppercase tracking-wide">
+                            {formatTime(event.end)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="mb-2 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="text-xl font-black text-black uppercase leading-tight">
+                              {parsed.title}
+                            </h2>
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase text-black">
+                              {parsed.duration && (
+                                <span className="border-2 border-black px-2 py-0.5 tracking-widest">
+                                  {parsed.duration}
+                                </span>
+                              )}
+                              <span className="border-2 border-black px-2 py-0.5 tracking-widest">
+                                {event.theatre === "rio"
+                                  ? "RIO THEATRE"
+                                  : event.theatre === "cinematheque"
+                                  ? "THE CINEMATHEQUE"
+                                  : formatVenue(event.resourceId)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t-4 border-black">
+                          <button
+                            className="bg-black text-white px-2 py-1 text-xs font-black uppercase tracking-[0.2em] hover:bg-yellow-400 hover:text-black border-4 border-black transition-colors w-full sm:w-auto"
+                            onClick={() => {
+                              if (event.moreInfoUrl) {
+                                window.open(event.moreInfoUrl, "_blank");
+                              } else {
+                                const moreInfoMatch = event.title.match(
+                                  /href="([^"]+)">\s*More Info/
+                                );
+                                if (moreInfoMatch) {
+                                  window.open(moreInfoMatch[1], "_blank");
+                                }
+                              }
+                            }}
+                          >
+                            MORE INFO →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      </section>
-    </div>
-  )
+      </div>
+      <footer className="border-t-8 bg-black text-white mt-8">
+        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-xs sm:text-sm font-black ">
+          made with 💚 in vancouver by{" "}
+          <a
+            href="https://sina.town"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-yellow-400 hover:text-yellow-300 transition-colors"
+          >
+            sina
+          </a>
+        </div>
+      </footer>
+    </>
+  );
 }
