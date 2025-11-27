@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { parseEventTitle, formatTime, formatVenue } from "../utils/parsers";
 import { getEventsForDate } from "../data/events.server";
-import { CalendarInstance } from "../utils/types";
+import type { CalendarInstance } from "../utils/types";
 import {
   addDaysInPst,
   formatDateKey,
@@ -42,7 +42,8 @@ export const Route = createFileRoute("/")({
   },
 });
 
-type FilterType = "all" | "viff" | "rio" | "cinematheque";
+type VenueFilter = "viff" | "rio" | "cinematheque";
+const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque"];
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 function App() {
@@ -53,17 +54,28 @@ function App() {
   const activeKey = isValidDateKey(search.date) ? search.date : fallbackKey;
   const date = parseDateKey(activeKey) ?? fallbackDate;
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<FilterType>("all");
+  const [activeVenues, setActiveVenues] = useState<VenueFilter[]>([...venueFilters]);
   const weekdayLabel = getWeekdayLabel(date);
   const weekdayIndex = weekdayLabels.indexOf(weekdayLabel);
   const activeWeekday = weekdayIndex === -1 ? 0 : weekdayIndex;
   const todayKey = getTodayDateKey();
   const isToday = activeKey === todayKey;
 
-  const filteredData = events.filter((event: CalendarInstance) => {
-    if (filter === "all") return true;
-    return event.theatre === filter;
-  });
+  const filteredData =
+    activeVenues.length === 0
+      ? []
+      : events.filter((event: CalendarInstance) =>
+          activeVenues.includes(event.theatre as VenueFilter)
+        );
+
+  const toggleVenue = (venue: VenueFilter) => {
+    setActiveVenues((prev) => {
+      if (prev.includes(venue)) {
+        return prev.filter((item) => item !== venue);
+      }
+      return [...prev, venue];
+    });
+  };
 
   const handleDateChange = (days: number) => {
     const newDate = addDaysInPst(date, days);
@@ -195,48 +207,41 @@ function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:flex gap-2 mb-4">
+        <div className="grid grid-cols-2 sm:flex gap-2 mb-4">
+          <button
+            onClick={() => setActiveVenues([...venueFilters])}
+            className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+              activeVenues.length === venueFilters.length
+                ? "bg-black text-white"
+                : "bg-white text-black hover:bg-yellow-400"
+            }`}
+          >
+            ALL
+          </button>
+          <button
+            onClick={() => setActiveVenues([])}
+            className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
+              activeVenues.length === 0
+                ? "bg-black text-white"
+                : "bg-white text-black hover:bg-yellow-400"
+            }`}
+          >
+            NONE
+          </button>
+          {venueFilters.map((venue) => (
             <button
-              onClick={() => setFilter("all")}
+              key={venue}
+              onClick={() => toggleVenue(venue)}
               className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                filter === "all"
+                activeVenues.includes(venue)
                   ? "bg-black text-white"
                   : "bg-white text-black hover:bg-yellow-400"
               }`}
             >
-              ALL
+              {venue.toUpperCase()}
             </button>
-            <button
-              onClick={() => setFilter("viff")}
-              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                filter === "viff"
-                  ? "bg-black text-white"
-                  : "bg-white text-black hover:bg-yellow-400"
-              }`}
-            >
-              VIFF
-            </button>
-            <button
-              onClick={() => setFilter("rio")}
-              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                filter === "rio"
-                  ? "bg-black text-white"
-                  : "bg-white text-black hover:bg-yellow-400"
-              }`}
-            >
-              RIO
-            </button>
-            <button
-              onClick={() => setFilter("cinematheque")}
-              className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                filter === "cinematheque"
-                  ? "bg-black text-white"
-                  : "bg-white text-black hover:bg-yellow-400"
-              }`}
-            >
-              CINEMATHEQUE
-            </button>
-          </div>
+          ))}
+        </div>
 
           {filteredData.length === 0 ? (
             <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
