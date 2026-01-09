@@ -1,7 +1,13 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseEventTitle, formatTime, formatVenue } from "../utils/parsers";
 import { getEventsForDate } from "../data/events.server";
+import {
+  getHypeCounts,
+  incrementHype,
+  decrementHype,
+} from "../data/hype.server";
+import { getEventIdentifier } from "../utils/event-ids";
 import type { CalendarInstance } from "../utils/types";
 import Calendar from "../components/Calendar";
 import {
@@ -55,12 +61,29 @@ export const Route = createFileRoute("/")({
   },
 });
 
-type VenueFilter = "viff" | "rio" | "cinematheque";
-const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque"];
+type VenueFilter = "viff" | "rio" | "cinematheque" | "park";
+const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque", "park"];
+const venueLinkMap: Record<VenueFilter, string> = {
+  viff: "https://viff.org",
+  rio: "https://riotheatre.ca",
+  cinematheque: "https://thecinematheque.ca",
+  park: "https://www.theparktheatre.ca",
+};
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 type ThemeMode = "festival" | "showtime" | "billboard";
-
+type LoadedDayBucket = {
+  events: CalendarInstance[];
+  date: Date;
+  dateKey: string;
+};
+type RenderDay = {
+  dateKey: string;
+  events: CalendarInstance[];
+  label: string;
+  isToday: boolean;
+  date: Date;
+};
 function App() {
   const loaderData = Route.useLoaderData();
   const { events, dateIso, dateKey: loaderDateKey } = loaderData;
@@ -95,12 +118,76 @@ function App() {
   const [heartClickCount, setHeartClickCount] = useState(0);
   const [heartClickTimeout, setHeartClickTimeout] =
     useState<NodeJS.Timeout | null>(null);
+  const [isInfiniteScrollEnabled, setIsInfiniteScrollEnabled] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.localStorage.getItem("infiniteScrollEnabled") === "true";
+    }
+    return false;
+  });
+  const [loadedDayBuckets, setLoadedDayBuckets] = useState<
+    Record<string, LoadedDayBucket>
+  >({});
+  const [loadedDayOrder, setLoadedDayOrder] = useState<string[]>([]);
+  const [isFetchingNextDay, setIsFetchingNextDay] = useState(false);
+  const infiniteSentinelRef = useRef<HTMLDivElement | null>(null);
   const isLoading = Boolean(pendingKey);
+  const [hypeCounts, setHypeCounts] = useState<Record<string, number>>({});
+  const [pendingHypeIds, setPendingHypeIds] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [hypedByUser, setHypedByUser] = useState<Record<string, boolean>>(
+    () => {
+      if (typeof window !== "undefined") {
+        const stored = window.localStorage.getItem("hypedEvents");
+        return stored ? JSON.parse(stored) : {};
+      }
+      return {};
+    }
+  );
+  const hypeFetchInFlightRef = useRef<Set<string>>(new Set());
+  const [hypeError, setHypeError] = useState<string | null>(null);
+  const [explosions, setExplosions] = useState<
+    Record<string, { id: number; image: string }>
+  >({});
+  const explosionIdRef = useRef(0);
+  const hypeImages = [
+    "/cinema1.png",
+    "/cinema2.webp",
+    "/laughing.jpg",
+    "/You_Wouldn't_Get_It.jpg",
+    "/godard.webp",
+    "/truth.png",
+  ];
+
+  const triggerExplosion = useCallback((eventId: string) => {
+    const id = explosionIdRef.current++;
+    const image = hypeImages[Math.floor(Math.random() * hypeImages.length)]!;
+    setExplosions((prev) => ({ ...prev, [eventId]: { id, image } }));
+    setTimeout(() => {
+      setExplosions((prev) => {
+        const next = { ...prev };
+        delete next[eventId];
+        return next;
+      });
+    }, 2500);
+  }, []);
 
   useEffect(() => {
     const enabled = localStorage.getItem("debugEnabled") === "true";
     setDebugEnabled(enabled);
   }, []);
+
+  useEffect(() => {
+    const loaderDate = parseDateKey(loaderDateKey) ?? new Date(dateIso);
+    setLoadedDayBuckets({
+      [loaderDateKey]: {
+        events,
+        date: loaderDate,
+        dateKey: loaderDateKey,
+      },
+    });
+    setLoadedDayOrder([loaderDateKey]);
+  }, [events, loaderDateKey, dateIso]);
 
   const handleHeartClick = () => {
     if (heartClickTimeout) {
@@ -130,6 +217,92 @@ function App() {
   const activeWeekday = weekdayIndex === -1 ? 0 : weekdayIndex;
   const todayKey = getTodayDateKey();
   const isToday = displayKey === todayKey;
+  const filterEventsByVenue = useCallback(
+    (items: CalendarInstance[]) => {
+      if (activeVenues.length === 0) {
+        return [];
+      }
+      return items.filter((event: CalendarInstance) =>
+        activeVenues.includes(event.theatre as VenueFilter)
+      );
+    },
+    [activeVenues]
+  );
+  const infiniteDayData = useMemo<RenderDay[]>(() => {
+    if (!isInfiniteScrollEnabled) {
+      return [];
+    }
+    return loadedDayOrder
+      .map((key) => {
+        const bucket = loadedDayBuckets[key];
+        if (!bucket) {
+          return null;
+        }
+        const label = `${getWeekdayLabel(bucket.date)} · ${formatPstDisplay(
+          bucket.date
+        )}`;
+        return {
+          dateKey: bucket.dateKey,
+          events: filterEventsByVenue(bucket.events),
+          label,
+          isToday: formatDateKey(bucket.date) === todayKey,
+          date: bucket.date,
+        } satisfies RenderDay;
+      })
+      .filter((value): value is RenderDay => Boolean(value));
+  }, [
+    filterEventsByVenue,
+    isInfiniteScrollEnabled,
+    loadedDayBuckets,
+    loadedDayOrder,
+    todayKey,
+  ]);
+
+  const loadNextDay = useCallback(async () => {
+    if (!isInfiniteScrollEnabled || isFetchingNextDay) {
+      return;
+    }
+    const lastKey = loadedDayOrder[loadedDayOrder.length - 1];
+    if (!lastKey) {
+      return;
+    }
+    const lastDate =
+      loadedDayBuckets[lastKey]?.date || parseDateKey(lastKey) || new Date();
+    const nextDate = addDaysInPst(lastDate, 1);
+    const nextKey = formatDateKey(nextDate);
+    if (loadedDayBuckets[nextKey]) {
+      return;
+    }
+
+    setIsFetchingNextDay(true);
+    try {
+      const response = await (getEventsForDate as any)({
+        data: { date: nextKey },
+      });
+      const resolvedDate =
+        parseDateKey(response.dateKey) ?? new Date(response.dateIso);
+      setLoadedDayBuckets((prev) => ({
+        ...prev,
+        [response.dateKey]: {
+          events: response.events,
+          date: resolvedDate,
+          dateKey: response.dateKey,
+        },
+      }));
+      setLoadedDayOrder((prev) =>
+        prev.includes(response.dateKey) ? prev : [...prev, response.dateKey]
+      );
+    } catch (error) {
+      console.error("Failed to load next day", error);
+    } finally {
+      setIsFetchingNextDay(false);
+    }
+  }, [
+    isInfiniteScrollEnabled,
+    isFetchingNextDay,
+    loadedDayOrder,
+    loadedDayBuckets,
+  ]);
 
   useEffect(() => {
     if (pendingKey && loaderDateKey === pendingKey) {
@@ -145,12 +318,81 @@ function App() {
     };
   }, [heartClickTimeout]);
 
-  const filteredData =
-    activeVenues.length === 0
-      ? []
-      : events.filter((event: CalendarInstance) =>
-          activeVenues.includes(event.theatre as VenueFilter)
-        );
+  useEffect(() => {
+    if (!isInfiniteScrollEnabled) {
+      return;
+    }
+    const sentinel = infiniteSentinelRef.current;
+    if (!sentinel) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadNextDay();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isInfiniteScrollEnabled, loadNextDay]);
+
+  const filteredData = useMemo(
+    () => filterEventsByVenue(events),
+    [events, filterEventsByVenue]
+  );
+
+  const visibleEvents = useMemo<CalendarInstance[]>(() => {
+    if (isInfiniteScrollEnabled) {
+      return infiniteDayData.flatMap((day) => day.events);
+    }
+    return filteredData;
+  }, [filteredData, infiniteDayData, isInfiniteScrollEnabled]);
+
+  useEffect(() => {
+    const collections = isInfiniteScrollEnabled
+      ? infiniteDayData.map((day) => day.events)
+      : [filteredData];
+    const identifierSet = new Set<string>();
+    collections.forEach((group) => {
+      group.forEach((event) => {
+        const id = getEventIdentifier(event);
+        if (id) {
+          identifierSet.add(id);
+        }
+      });
+    });
+    const missing = Array.from(identifierSet).filter(
+      (id) =>
+        hypeCounts[id] === undefined && !hypeFetchInFlightRef.current.has(id)
+    );
+    if (missing.length === 0) {
+      return;
+    }
+    missing.forEach((id) => hypeFetchInFlightRef.current.add(id));
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await (getHypeCounts as any)({
+          data: { eventIds: missing },
+        });
+        if (!cancelled && response?.counts) {
+          setHypeCounts((prev) => ({ ...prev, ...response.counts }));
+        }
+      } catch (error) {
+        console.error("Failed to load hype counts", error);
+      } finally {
+        missing.forEach((id) => hypeFetchInFlightRef.current.delete(id));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredData, hypeCounts, infiniteDayData, isInfiniteScrollEnabled]);
 
   const getVenueLabel = (event: CalendarInstance) => {
     if (event.theatre === "rio") {
@@ -159,15 +401,166 @@ function App() {
     if (event.theatre === "cinematheque") {
       return "THE CINEMATHEQUE";
     }
+    if (event.theatre === "park") {
+      return "THE PARK THEATRE";
+    }
     return formatVenue(event.resourceId);
   };
 
-  const openEventLink = (event: CalendarInstance) => {
+  const getVenueUrl = (event: CalendarInstance) => {
+    if (!event.theatre) {
+      return null;
+    }
+    return venueLinkMap[event.theatre as VenueFilter] ?? null;
+  };
+
+  const resolveEventUrl = (event: CalendarInstance) => {
     const fallbackMatch = event.title.match(/href="([^"]+)">\s*More Info/);
-    const targetUrl = event.moreInfoUrl || fallbackMatch?.[1];
+    return event.moreInfoUrl || fallbackMatch?.[1] || null;
+  };
+
+  const renderVenueLink = (event: CalendarInstance, className: string) => {
+    const venueLabel = getVenueLabel(event);
+    const eventUrl = resolveEventUrl(event) || getVenueUrl(event);
+    if (!eventUrl) {
+      return <span className={className}>{venueLabel}</span>;
+    }
+    return (
+      <a
+        href={eventUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${className} transition-colors hover:text-yellow-500 underline-offset-4`}
+      >
+        {venueLabel}
+      </a>
+    );
+  };
+
+  const openEventLink = (event: CalendarInstance) => {
+    const targetUrl = resolveEventUrl(event);
     if (targetUrl) {
       window.open(targetUrl, "_blank");
     }
+  };
+
+  const handleHypeClick = useCallback(
+    async (event: CalendarInstance, displayTitle: string) => {
+      const eventId = getEventIdentifier(event);
+      if (!eventId) {
+        return;
+      }
+      const isCurrentlyHyped = Boolean(hypedByUser[eventId]);
+      setPendingHypeIds((prev) => ({ ...prev, [eventId]: true }));
+      setHypeError(null);
+      try {
+        const serverFn = isCurrentlyHyped ? decrementHype : incrementHype;
+        const response = await (serverFn as any)({
+          data: {
+            eventId,
+            title: displayTitle,
+            theatre: event.theatre,
+          },
+        });
+        if (response?.eventId) {
+          setHypeCounts((prev) => ({
+            ...prev,
+            [response.eventId]: response.hypeCount ?? 0,
+          }));
+          setHypedByUser((prev) => {
+            const next = { ...prev };
+            if (isCurrentlyHyped) {
+              delete next[response.eventId];
+            } else {
+              next[response.eventId] = true;
+            }
+            window.localStorage.setItem("hypedEvents", JSON.stringify(next));
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error("Failed to toggle hype", error);
+        setHypeError(
+          "Couldn't update hype right now. Please try again shortly."
+        );
+      } finally {
+        setPendingHypeIds((prev) => {
+          const next = { ...prev };
+          delete next[eventId];
+          return next;
+        });
+      }
+    },
+    [hypedByUser]
+  );
+
+  const renderHypeControl = (event: CalendarInstance, displayTitle: string) => {
+    // Hide on billboard theme
+    if (theme === "billboard") {
+      return null;
+    }
+    const eventId = getEventIdentifier(event);
+    if (!eventId) {
+      return null;
+    }
+    const isPending = Boolean(pendingHypeIds[eventId]);
+    const isHyped = Boolean(hypedByUser[eventId]);
+    const activeExplosion = eventId ? explosions[eventId] : null;
+
+    // Showtime theme: thinner border, smaller padding to match venue label
+    const isShowtime = theme === "showtime";
+    const buttonClass = isShowtime
+      ? `w-full border border-black px-2 py-0.5 text-[11px] sm:text-xs font-black uppercase tracking-widest text-center ${
+          isPending
+            ? "bg-gray-200 text-gray-400 cursor-wait"
+            : isHyped
+            ? "bg-amber-100 text-black hover:bg-amber-200"
+            : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+        }`
+      : `w-full border-2 border-black px-3 py-1 text-xs font-black uppercase tracking-widest text-center ${
+          isPending
+            ? "bg-gray-300 text-gray-500 cursor-wait"
+            : isHyped
+            ? "bg-amber-200 text-black hover:bg-amber-300"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+        }`;
+
+    return (
+      <div className="relative">
+        {activeExplosion && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none z-9999">
+            <img
+              src={activeExplosion.image}
+              alt=""
+              className="max-w-64 max-h-64 border-8 border-black shadow-2xl animate-[explosion_2.5s_ease-out_forwards]"
+            />
+            <span className="absolute -left-8 top-1/2 -translate-y-1/2 text-5xl animate-[fireLeft_2.5s_ease-out_forwards]">
+              🔥
+            </span>
+            <span className="absolute -right-8 top-1/2 -translate-y-1/2 text-5xl animate-[fireRight_2.5s_ease-out_forwards]">
+              🔥
+            </span>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            if (!isHyped && eventId) triggerExplosion(eventId);
+            handleHypeClick(event, displayTitle);
+          }}
+          disabled={isPending}
+          className={`${buttonClass} transition transform active:scale-95`}
+          aria-live="polite"
+          aria-label={
+            isHyped
+              ? `Remove hype for ${displayTitle}.`
+              : `Hype ${displayTitle}.`
+          }
+        >
+          {isPending ? "..." : isHyped ? "HYPED" : "HYPE"}
+        </button>
+      </div>
+    );
   };
 
   const isBillboardTheme = theme === "billboard";
@@ -192,6 +585,199 @@ function App() {
     : isShowtimeTheme
     ? "text-gray-700"
     : "text-black";
+  const renderThemeLayout = (eventItems: CalendarInstance[]) => {
+    if (eventItems.length === 0) {
+      return (
+        <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
+          NO EVENTS FOUND
+        </div>
+      );
+    }
+
+    if (theme === "showtime") {
+      return (
+        <div className="border-4 border-black bg-white">
+          {eventItems.map((event: CalendarInstance, index: number) => {
+            const parsed = parseEventTitle(event.title, event);
+            const venueLinkElement = renderVenueLink(
+              event,
+              "w-full border border-black px-2 py-0.5 tracking-widest text-center sm:text-right inline-block"
+            );
+            const tintClass =
+              event.theatre === "viff"
+                ? "bg-yellow-50"
+                : event.theatre === "rio"
+                ? "bg-red-50"
+                : event.theatre === "cinematheque"
+                ? "bg-blue-50"
+                : event.theatre === "park"
+                ? "bg-gray-200"
+                : "bg-gray-50";
+            return (
+              <div
+                key={index}
+                className={`border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="flex items-center gap-2 text-black whitespace-nowrap sm:flex-none">
+                    <span className="text-lg sm:text-xl font-black">
+                      {formatTime(event.start)}
+                    </span>
+                    <span className="text-gray-400">....</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openEventLink(event)}
+                    className="flex-1 text-left uppercase italic tracking-tight transition-colors hover:text-yellow-500 text-base sm:text-lg font-lora"
+                  >
+                    {parsed.title}
+                  </button>
+                  <div className="flex flex-col gap-2 text-[11px] sm:w-56 sm:text-xs sm:flex-none sm:items-end">
+                    {venueLinkElement}
+                    {renderHypeControl(event, parsed.title)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (theme === "billboard") {
+      return (
+        <>
+          <div className="border-8 border-black bg-black text-white relative overflow-hidden">
+            <div className="relative">
+              <div className="flex gap-2 justify-between px-6 py-2">
+                {Array.from({ length: 14 })!.map((_, bulbIndex) => (
+                  <span
+                    key={bulbIndex}
+                    className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
+                      bulbIndex % 3 === 0
+                        ? "bg-yellow-300"
+                        : bulbIndex % 3 === 1
+                        ? "bg-red-300"
+                        : "bg-blue-200"
+                    }`}
+                    style={{ animationDelay: `${bulbIndex * 0.12}s` }}
+                  />
+                ))}
+              </div>
+              {eventItems.map((event: CalendarInstance, index: number) => {
+                const parsed = parseEventTitle(event.title, event);
+                const venueLinkElement = renderVenueLink(
+                  event,
+                  "text-xs font-black uppercase tracking-[0.5em] text-white whitespace-nowrap font-bebas inline-block"
+                );
+                const accentColor =
+                  event.theatre === "viff"
+                    ? "text-yellow-300"
+                    : event.theatre === "rio"
+                    ? "text-red-300"
+                    : event.theatre === "cinematheque"
+                    ? "text-blue-200"
+                    : event.theatre === "park"
+                    ? "text-gray-300"
+                    : "text-white";
+                return (
+                  <div
+                    key={index}
+                    className="flex flex-col sm:flex-row items-stretch"
+                  >
+                    <div className="bg-white text-black px-2.5 py-2 text-xl sm:text-3xl font-black tracking-[0.2em] flex items-center justify-center w-full sm:w-32 sm:flex-none shadow-[inset_0_0_10px_rgba(0,0,0,0.2)] font-bebas">
+                      {formatTime(event.start)}
+                    </div>
+                    <div className="flex-1 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex-1">
+                        <button
+                          type="button"
+                          onClick={() => openEventLink(event)}
+                          className={`text-left text-xl sm:text-3xl font-black uppercase tracking-[0.4em] ${accentColor} hover:text-cyan-200 transition-colors drop-shadow-[0_0_6px_rgba(248,231,28,0.25)] font-bebas`}
+                        >
+                          {parsed.title}
+                        </button>
+                      </div>
+                      <div>{venueLinkElement}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex gap-2 justify-between px-6 py-2 border-x-8 border-b-8 border-black bg-black">
+            {Array.from({ length: 14 })!.map((_, bulbIndex) => (
+              <span
+                key={`bottom-${bulbIndex}`}
+                className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
+                  bulbIndex % 3 === 0
+                    ? "bg-yellow-300"
+                    : bulbIndex % 3 === 1
+                    ? "bg-red-300"
+                    : "bg-blue-200"
+                }`}
+                style={{ animationDelay: `${0.1 + bulbIndex * 0.12}s` }}
+              />
+            ))}
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        {eventItems.map((event: CalendarInstance, index: number) => {
+          const parsed = parseEventTitle(event.title, event);
+          const venueLinkElement = renderVenueLink(
+            event,
+            "border-2 border-black bg-white px-3 py-1 text-center text-xs font-black uppercase tracking-widest text-black inline-block"
+          );
+          return (
+            <div
+              key={index}
+              className={`border-4 border-black p-4 transition-colors ${
+                event.theatre === "viff"
+                  ? "bg-yellow-50 hover:bg-yellow-100"
+                  : event.theatre === "rio"
+                  ? "bg-red-50 hover:bg-red-100"
+                  : event.theatre === "cinematheque"
+                  ? "bg-blue-50 hover:bg-blue-100"
+                  : event.theatre === "park"
+                  ? "bg-gray-200 hover:bg-gray-300"
+                  : "bg-gray-50 hover:bg-gray-100"
+              }`}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                <div className="flex flex-col gap-1 sm:flex-none">
+                  <div className="text-3xl font-black text-black leading-none">
+                    {formatTime(event.start)}
+                  </div>
+                  {parsed.duration && (
+                    <span className="border-2 border-black px-2 py-0.5 text-xs font-black uppercase tracking-widest">
+                      {parsed.duration}
+                    </span>
+                  )}
+                </div>
+                <div className="hidden sm:block w-1 self-stretch bg-black" />
+                <div className="flex flex-1 items-center">
+                  <button
+                    onClick={() => openEventLink(event)}
+                    className="text-3xl sm:text-4xl font-black text-black uppercase leading-tight text-left hover:text-yellow-600 transition-colors"
+                  >
+                    {parsed.title}
+                  </button>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-60 sm:flex-none">
+                  {venueLinkElement}
+                  {renderHypeControl(event, parsed.title)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const toggleVenue = (venue: VenueFilter) => {
     setActiveVenues((prev) => {
@@ -241,6 +827,16 @@ function App() {
       },
     });
     setShowCalendar(false);
+  };
+
+  const handleInfiniteScrollToggle = () => {
+    setIsInfiniteScrollEnabled((prev) => {
+      const nextValue = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("infiniteScrollEnabled", String(nextValue));
+      }
+      return nextValue;
+    });
   };
 
   return (
@@ -304,7 +900,12 @@ function App() {
               >
                 <button
                   onClick={() => handleDateChange(-1)}
-                  className="bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 hover:text-black transition-colors w-full sm:w-auto sm:self-stretch flex items-center justify-center"
+                  disabled={isInfiniteScrollEnabled}
+                  className={`bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors w-full sm:w-auto sm:self-stretch flex items-center justify-center ${
+                    isInfiniteScrollEnabled
+                      ? "opacity-40 cursor-not-allowed"
+                      : "hover:bg-yellow-400 hover:text-black"
+                  }`}
                 >
                   ←
                 </button>
@@ -353,7 +954,12 @@ function App() {
                 </div>
                 <button
                   onClick={() => handleDateChange(1)}
-                  className="bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 hover:text-black transition-colors w-full sm:w-auto sm:self-stretch flex items-center justify-center"
+                  disabled={isInfiniteScrollEnabled}
+                  className={`bg-black text-white px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors w-full sm:w-auto sm:self-stretch flex items-center justify-center ${
+                    isInfiniteScrollEnabled
+                      ? "opacity-40 cursor-not-allowed"
+                      : "hover:bg-yellow-400 hover:text-black"
+                  }`}
                 >
                   →
                 </button>
@@ -421,6 +1027,18 @@ function App() {
                     </div>
                   )}
                 </div>
+                <button
+                  onClick={handleInfiniteScrollToggle}
+                  className={`px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors w-full sm:w-auto ${
+                    isInfiniteScrollEnabled
+                      ? "bg-green-400 text-black"
+                      : "bg-white text-black hover:bg-yellow-400"
+                  }`}
+                >
+                  {isInfiniteScrollEnabled
+                    ? "DISABLE INFINITE SCROLL"
+                    : "ENABLE INFINITE SCROLL"}
+                </button>
                 {debugEnabled && (
                   <button
                     onClick={() => setShowDebug(!showDebug)}
@@ -432,6 +1050,24 @@ function App() {
               </div>
             </div>
           </div>
+
+          {hypeError && (
+            <div
+              className="mb-4 border-4 border-black bg-red-100 text-black px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+              role="alert"
+            >
+              <span className="text-xs sm:text-sm font-black uppercase tracking-[0.3em]">
+                {hypeError}
+              </span>
+              <button
+                type="button"
+                onClick={() => setHypeError(null)}
+                className="bg-black text-white px-3 py-1 text-xs font-black uppercase border-4 border-black hover:bg-white hover:text-black transition-colors"
+              >
+                DISMISS
+              </button>
+            </div>
+          )}
 
           {showCalendar && (
             <div className="mb-4 max-w-md">
@@ -502,204 +1138,86 @@ function App() {
             <div className="text-black text-base font-bold border-4 border-black p-4 bg-yellow-200 animate-pulse text-center">
               FETCHING LATEST PROGRAMME…
             </div>
-          ) : filteredData.length === 0 ? (
-            <div className="text-black text-base font-bold border-4 border-black p-2 bg-yellow-400">
-              NO EVENTS FOUND
-            </div>
-          ) : (
-            theme === "showtime" && (
-              <div className="border-4 border-black bg-white">
-                {filteredData.map((event: CalendarInstance, index: number) => {
-                  const parsed = parseEventTitle(event.title, event);
-                  const venueLabel = getVenueLabel(event);
-                  const tintClass =
-                    event.theatre === "viff"
-                      ? "bg-yellow-50"
-                      : event.theatre === "rio"
-                      ? "bg-red-50"
-                      : event.theatre === "cinematheque"
-                      ? "bg-blue-50"
-                      : "bg-gray-50";
-                  return (
+          ) : isInfiniteScrollEnabled ? (
+            infiniteDayData.length === 0 ? (
+              renderThemeLayout(filteredData)
+            ) : (
+              <div className="space-y-6">
+                {infiniteDayData.map((day) => (
+                  <section key={day.dateKey} className="space-y-3">
                     <div
-                      key={index}
-                      className={`flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
+                      className={`${
+                        isBillboardTheme
+                          ? "border-4 border-yellow-400 bg-black text-yellow-200"
+                          : "border-4 border-black bg-white text-black"
+                      } px-4 py-2`}
                     >
-                      <span className="text-lg sm:text-xl font-black text-black">
-                        {formatTime(event.start)}
-                      </span>
-                      <span className="text-gray-400">....</span>
-                      <button
-                        type="button"
-                        onClick={() => openEventLink(event)}
-                        className="flex-1 min-w-[200px] text-left uppercase italic tracking-tight transition-colors hover:text-yellow-500 text-base sm:text-lg font-lora"
-                      >
-                        {parsed.title}
-                      </button>
-                      <span className="text-[11px] sm:text-xs border border-black px-2 py-0.5 tracking-widest">
-                        {venueLabel}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p
+                          className={`font-black uppercase text-3xl sm:text-4xl tracking-tight ${
+                            isBillboardTheme
+                              ? "font-bebas tracking-[0.2em]"
+                              : isShowtimeTheme
+                              ? "italic font-lora"
+                              : ""
+                          }`}
+                        >
+                          {day.label}
+                        </p>
+                        {day.isToday && (
+                          <span
+                            className={`text-xs font-black uppercase border-2 border-black px-2 py-0.5 ${
+                              isBillboardTheme
+                                ? "bg-yellow-400 text-black"
+                                : "bg-green-400 text-black"
+                            }`}
+                          >
+                            TODAY
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  );
-                })}
+                    {renderThemeLayout(day.events)}
+                  </section>
+                ))}
+                <div
+                  ref={infiniteSentinelRef}
+                  className="h-2 w-full"
+                  aria-hidden="true"
+                />
+                {isFetchingNextDay && (
+                  <div className="text-black text-base font-bold border-4 border-black p-4 bg-yellow-200 text-center">
+                    LOADING NEXT DAY…
+                  </div>
+                )}
               </div>
             )
-          )}
-          {theme === "billboard" && (
-            <>
-              <div className="border-8 border-black bg-black text-white relative overflow-hidden">
-                <div className="relative">
-                  <div className="flex gap-2 justify-between px-6 py-2">
-                    {Array.from({ length: 14 })!.map((_, bulbIndex) => (
-                      <span
-                        key={bulbIndex}
-                        className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
-                          bulbIndex % 3 === 0
-                            ? "bg-yellow-300"
-                            : bulbIndex % 3 === 1
-                            ? "bg-red-300"
-                            : "bg-blue-200"
-                        }`}
-                        style={{ animationDelay: `${bulbIndex * 0.12}s` }}
-                      />
-                    ))}
-                  </div>
-                  {filteredData.map(
-                    (event: CalendarInstance, index: number) => {
-                      const parsed = parseEventTitle(event.title, event);
-                      const venueLabel = getVenueLabel(event);
-                      const accentColor =
-                        event.theatre === "viff"
-                          ? "text-yellow-300"
-                          : event.theatre === "rio"
-                          ? "text-red-300"
-                          : event.theatre === "cinematheque"
-                          ? "text-blue-200"
-                          : "text-white";
-                      return (
-                        <div
-                          key={index}
-                          className="flex flex-col sm:flex-row items-stretch"
-                        >
-                          <div className="bg-white text-black px-2.5 py-2 text-xl sm:text-3xl font-black tracking-[0.2em] flex items-center justify-center w-full sm:w-32 sm:flex-none shadow-[inset_0_0_10px_rgba(0,0,0,0.2)] font-bebas">
-                            {formatTime(event.start)}
-                          </div>
-                          <div className="flex-1 px-4 py-3 grid gap-3 sm:grid-cols-[1fr_auto] items-center">
-                            <button
-                              type="button"
-                              onClick={() => openEventLink(event)}
-                              className={`text-left text-xl sm:text-3xl font-black uppercase tracking-[0.4em] ${accentColor} hover:text-yellow-300 transition-colors drop-shadow-[0_0_6px_rgba(248,231,28,0.25)] font-bebas`}
-                            >
-                              {parsed.title}
-                            </button>
-                            <div className="text-xs font-black uppercase tracking-[0.5em] text-white whitespace-nowrap font-bebas">
-                              {venueLabel}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2 justify-between px-6 py-2 border-x-8 border-b-8 border-black bg-black">
-                {Array.from({ length: 14 })!.map((_, bulbIndex) => (
-                  <span
-                    key={`bottom-${bulbIndex}`}
-                    className={`w-3 h-3 rounded-full shadow-[0_0_6px_rgba(255,255,137,0.6)] billboard-bulb ${
-                      bulbIndex % 3 === 0
-                        ? "bg-yellow-300"
-                        : bulbIndex % 3 === 1
-                        ? "bg-red-300"
-                        : "bg-blue-200"
-                    }`}
-                    style={{ animationDelay: `${0.1 + bulbIndex * 0.12}s` }}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-          {theme === "festival" && (
-            <div className="space-y-2">
-              {filteredData.map((event: CalendarInstance, index: number) => {
-                const parsed = parseEventTitle(event.title, event);
-                const venueLabel = getVenueLabel(event);
-                return (
-                  <div
-                    key={index}
-                    className={`border-4 border-black p-4 transition-colors ${
-                      event.theatre === "viff"
-                        ? "bg-yellow-50 hover:bg-yellow-100"
-                        : event.theatre === "rio"
-                        ? "bg-red-50 hover:bg-red-100"
-                        : "bg-blue-50 hover:bg-blue-100"
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                      <div className="flex sm:block items-center gap-2 border-black sm:border-r-4 border-b-4 sm:border-b-0 pr-0 sm:pr-4 pb-3 sm:pb-0">
-                        <div>
-                          <div className="text-2xl sm:text-3xl font-black text-black leading-none">
-                            {formatTime(event.start)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex-1">
-                        <div className="mb-2 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h2 className="text-xl font-black text-black uppercase leading-tight">
-                              {parsed.title}
-                            </h2>
-                            <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase text-black">
-                              {parsed.duration && (
-                                <span className="border-2 border-black px-2 py-0.5 tracking-widest">
-                                  {parsed.duration}
-                                </span>
-                              )}
-                              <span className="border-2 border-black px-2 py-0.5 tracking-widest">
-                                {venueLabel}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 border-t-4 border-black">
-                          <button
-                            className="bg-black text-white px-2 py-1 text-xs font-black uppercase tracking-[0.2em] hover:bg-yellow-400 hover:text-black border-4 border-black transition-colors w-full sm:w-auto"
-                            onClick={() => openEventLink(event)}
-                          >
-                            MORE INFO →
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          ) : (
+            renderThemeLayout(filteredData)
           )}
         </div>
       </div>
 
       <footer
-        className={`border-t-8 ${
-          isBillboardTheme ? "border-gray-700" : "border-white"
+        className={`border-t ${
+          isBillboardTheme ? "border-gray-700" : "border-white/20"
         } ${isBillboardTheme ? "mt-0" : "mt-8"} ${
           isBillboardTheme ? "bg-gray-800" : "bg-black"
         } text-white`}
       >
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="relative py-6">
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8">
-              <div className="text-center text-xs sm:text-sm font-black uppercase sm:flex-1">
-                <p>Van Kino Calendar</p>
-                <p className="mt-2 text-[10px] sm:text-xs opacity-80">
-                  Aggregating Vancouver art cinema listings
-                </p>
-              </div>
-              <div className="hidden sm:block absolute left-1/3 top-0 bottom-0 w-1 bg-white -translate-x-1/2"></div>
-              <div className="text-center text-xs sm:text-sm font-black sm:flex-1 uppercase">
-                made with{" "}
+        <div className="max-w-6xl mx-auto px-4 py-10">
+          <div className="flex flex-col sm:flex-row items-start justify-between gap-8 sm:gap-12">
+            <div className="sm:flex-1">
+              <p className="text-sm uppercase tracking-widest opacity-90">
+                Van Kino Calendar
+              </p>
+              <p className="mt-2 text-sm font-lora opacity-60">
+                Aggregating Vancouver art cinema listings
+              </p>
+            </div>
+            <div className="sm:flex-1">
+              <p className="text-sm font-lora opacity-90">
+                Made with{" "}
                 <button
                   onClick={handleHeartClick}
                   className="cursor-pointer hover:scale-110 transition-transform inline-block"
@@ -707,74 +1225,80 @@ function App() {
                 >
                   💚
                 </button>{" "}
-                in vancouver by{" "}
+                in Vancouver by{" "}
                 <a
                   href="https://sina.town"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-yellow-400 hover:text-yellow-300 transition-colors"
                 >
-                  sina
+                  Sina
                 </a>
-                <p className="mt-2 text-[10px] sm:text-xs opacity-80">
-                  View the source code on{" "}
-                  <a
-                    href="https://github.com/sinakhalili/van-kino-calendar"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                  >
-                    GitHub
-                  </a>
-                </p>
-                <p className="mt-2 text-[10px] sm:text-xs opacity-80">
-                  Open analytics on{" "}
-                  <a
-                    href="https://cloud.umami.is/analytics/eu/share/tCcvXWtDXOdQOcqx"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                  >
-                    Umami
-                  </a>
-                </p>
-              </div>
-              <div className="text-center text-xs sm:text-sm font-black sm:flex-1">
-                <p className="uppercase">Sources</p>
-                <p className="mt-2 text-[10px] sm:text-xs opacity-80">
-                  <a
-                    href="https://viff.org"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                  >
-                    VIFF
-                  </a>{" "}
-                  •{" "}
-                  <a
-                    href="https://riotheatre.ca"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                  >
-                    Rio Theatre
-                  </a>{" "}
-                  •{" "}
-                  <a
-                    href="https://thecinematheque.ca"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                  >
-                    The Cinematheque
-                  </a>
-                </p>
-                <p className="mt-2 text-[10px] sm:text-xs opacity-80 uppercase">
-                  All content and trademarks belong to their respective venues.
-                  This is an independent, non-commercial aggregator.
-                </p>
-              </div>
-              <div className="hidden sm:block absolute left-2/3 top-0 bottom-0 w-1 bg-white -translate-x-1/2"></div>
+              </p>
+              <p className="mt-3 text-sm font-lora opacity-60">
+                <a
+                  href="https://github.com/sinakhalili/van-kino-calendar"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  GitHub
+                </a>
+                {" · "}
+                <a
+                  href="https://cloud.umami.is/analytics/eu/share/tCcvXWtDXOdQOcqx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  Analytics
+                </a>
+              </p>
+            </div>
+            <div className="sm:flex-1 sm:text-right">
+              <p className="text-sm uppercase tracking-widest opacity-90">
+                Sources
+              </p>
+              <p className="mt-2 text-sm font-lora opacity-60">
+                <a
+                  href="https://viff.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  VIFF
+                </a>
+                {" · "}
+                <a
+                  href="https://riotheatre.ca"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  Rio Theatre
+                </a>
+                {" · "}
+                <a
+                  href="https://thecinematheque.ca"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  The Cinematheque
+                </a>
+                {" · "}
+                <a
+                  href="https://www.theparktheatre.ca"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-400/80 hover:text-yellow-300 transition-colors"
+                >
+                  The Park
+                </a>
+              </p>
+              <p className="mt-3 text-xs font-lora opacity-40">
+                All content belongs to respective venues
+              </p>
             </div>
           </div>
         </div>

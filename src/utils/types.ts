@@ -5,6 +5,6 @@ export interface CalendarInstance {
   title: string;
   moreInfo: string;
   eventType: string;
-  theatre: "viff" | "rio" | "cinematheque";
+  theatre: "viff" | "rio" | "cinematheque" | "park";
   moreInfoUrl?: string;
 }

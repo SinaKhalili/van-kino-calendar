@@ -16,8 +16,8 @@ function decodeHtmlEntities(text: string): string {
 }
 
 export function parseEventTitle(html: string, event: CalendarInstance) {
-  // For Rio and Cinematheque events, title is already plain text
-  if (event.theatre === "rio" || event.theatre === "cinematheque") {
+  // For Rio, Cinematheque, and Park events, title is already plain text
+  if (event.theatre === "rio" || event.theatre === "cinematheque" || event.theatre === "park") {
     return {
       title: decodeHtmlEntities(event.title),
       time: "",

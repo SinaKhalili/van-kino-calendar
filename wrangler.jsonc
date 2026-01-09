@@ -10,7 +10,14 @@
   "main": "@tanstack/react-start/server-entry",
   "observability": {
     "enabled": true
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "HYPE_DB",
+      "database_name": "van-kino-db",
+      "database_id": "714a6045-3046-40f4-bc2a-39369dbc08fd"
+    }
+  ]
   /**
    * Smart Placement
    * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
