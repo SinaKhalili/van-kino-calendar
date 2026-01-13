@@ -76,6 +76,14 @@ const venueLinkMap: Record<VenueFilter, string> = {
   "fifth-avenue": "https://www.cineplex.com/theatre/fifth-avenue-cinemas",
   "international-village": "https://www.cineplex.com/theatre/international-village",
 };
+const venueDisplayNames: Record<VenueFilter, string> = {
+  viff: "VIFF",
+  rio: "RIO",
+  cinematheque: "CINEMATHEQUE",
+  park: "PARK",
+  "fifth-avenue": "FIFTH AVE",
+  "international-village": "INT'L VILLAGE",
+};
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 type ThemeMode = "festival" | "showtime" | "billboard";
@@ -103,7 +111,7 @@ function App() {
   const date = parseDateKey(displayKey) ?? fallbackDate;
   const navigate = useNavigate();
   const [activeVenues, setActiveVenues] = useState<VenueFilter[]>([
-    ...venueFilters,
+    "viff", "rio", "cinematheque", "park",
   ]);
   const [showCalendar, setShowCalendar] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -1181,7 +1189,7 @@ function App() {
                     : "bg-white text-black hover:bg-yellow-400"
                 }`}
               >
-                {venue.toUpperCase()}
+                {venueDisplayNames[venue]}
               </button>
             ))}
           </div>
