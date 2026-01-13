@@ -4,6 +4,7 @@ import { fetchViffEvents } from "../utils/viff.server";
 import { fetchRioEvents } from "../utils/rio.server";
 import { fetchCinemathequeEvents } from "../utils/cinematheque.server";
 import { fetchParkEvents } from "../utils/park.server";
+import { fetchCineplexEvents } from "../utils/cineplex.server";
 import {
   getTodayDateKey,
   isValidDateKey,
@@ -29,12 +30,13 @@ export const getEventsForDate = createServerFn({
 
   const targetDate = parseDateKey(requestedKey) ?? new Date();
 
-  const [viffEvents, rioEvents, cinemathequeEvents, parkEvents] =
+  const [viffEvents, rioEvents, cinemathequeEvents, parkEvents, cineplexEvents] =
     await Promise.all([
       fetchViffEvents(targetDate, requestedKey),
       fetchRioEvents(targetDate, requestedKey),
       fetchCinemathequeEvents(targetDate, requestedKey),
       fetchParkEvents(targetDate, requestedKey),
+      fetchCineplexEvents(targetDate, requestedKey),
     ]);
 
   const events = [
@@ -42,6 +44,7 @@ export const getEventsForDate = createServerFn({
     ...rioEvents,
     ...cinemathequeEvents,
     ...parkEvents,
+    ...cineplexEvents,
   ].sort(
     (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
   );

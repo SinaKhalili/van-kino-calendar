@@ -19,6 +19,11 @@ import {
   isValidDateKey,
   parseDateKey,
 } from "../utils/date-helpers";
+import {
+  calculateMarathon,
+  formatDuration,
+  type MarathonResult,
+} from "../utils/movie-marathon";
 
 type SearchSchema = {
   date?: string;
@@ -61,13 +66,15 @@ export const Route = createFileRoute("/")({
   },
 });
 
-type VenueFilter = "viff" | "rio" | "cinematheque" | "park";
-const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque", "park"];
+type VenueFilter = "viff" | "rio" | "cinematheque" | "park" | "fifth-avenue" | "international-village";
+const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque", "park", "fifth-avenue", "international-village"];
 const venueLinkMap: Record<VenueFilter, string> = {
   viff: "https://viff.org",
   rio: "https://riotheatre.ca",
   cinematheque: "https://thecinematheque.ca",
   park: "https://www.theparktheatre.ca",
+  "fifth-avenue": "https://www.cineplex.com/theatre/fifth-avenue-cinemas",
+  "international-village": "https://www.cineplex.com/theatre/international-village",
 };
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
@@ -113,6 +120,8 @@ function App() {
     return "festival";
   });
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showMarathon, setShowMarathon] = useState(false);
+  const [excludedFromMarathon, setExcludedFromMarathon] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [heartClickCount, setHeartClickCount] = useState(0);
@@ -149,6 +158,9 @@ function App() {
   const [explosions, setExplosions] = useState<
     Record<string, { id: number; image: string }>
   >({});
+  const [maxModeExplosions, setMaxModeExplosions] = useState<
+    Array<{ id: number; image: string; x: number; y: number }>
+  >([]);
   const explosionIdRef = useRef(0);
   const hypeImages = [
     "/cinema1.png",
@@ -169,6 +181,19 @@ function App() {
         delete next[eventId];
         return next;
       });
+    }, 2500);
+  }, []);
+
+  const triggerMaxModeExplosions = useCallback(() => {
+    const newExplosions = Array.from({ length: 6 }, () => ({
+      id: explosionIdRef.current++,
+      image: hypeImages[Math.floor(Math.random() * hypeImages.length)]!,
+      x: 10 + Math.random() * 80,
+      y: 10 + Math.random() * 80,
+    }));
+    setMaxModeExplosions(newExplosions);
+    setTimeout(() => {
+      setMaxModeExplosions([]);
     }, 2500);
   }, []);
 
@@ -346,6 +371,18 @@ function App() {
     [events, filterEventsByVenue]
   );
 
+  const getMarathonMovieKey = (movie: CalendarInstance) => `${movie.start}|${movie.title}`;
+
+  const marathonResult = useMemo(
+    () => {
+      const available = filteredData.filter(
+        (movie) => !excludedFromMarathon.has(getMarathonMovieKey(movie))
+      );
+      return calculateMarathon(available);
+    },
+    [filteredData, excludedFromMarathon]
+  );
+
   const visibleEvents = useMemo<CalendarInstance[]>(() => {
     if (isInfiniteScrollEnabled) {
       return infiniteDayData.flatMap((day) => day.events);
@@ -403,6 +440,12 @@ function App() {
     }
     if (event.theatre === "park") {
       return "THE PARK THEATRE";
+    }
+    if (event.theatre === "fifth-avenue") {
+      return "FIFTH AVENUE";
+    }
+    if (event.theatre === "international-village") {
+      return "INT'L VILLAGE";
     }
     return formatVenue(event.resourceId);
   };
@@ -1039,6 +1082,15 @@ function App() {
                     ? "DISABLE INFINITE SCROLL"
                     : "ENABLE INFINITE SCROLL"}
                 </button>
+                <button
+                  onClick={() => {
+                    triggerMaxModeExplosions();
+                    setShowMarathon(true);
+                  }}
+                  className="bg-white text-black px-4 py-2 text-sm font-black uppercase border-4 border-black hover:bg-yellow-400 transition-colors w-full sm:w-auto"
+                >
+                  MAX MODE
+                </button>
                 {debugEnabled && (
                   <button
                     onClick={() => setShowDebug(!showDebug)}
@@ -1303,6 +1355,143 @@ function App() {
           </div>
         </div>
       </footer>
+
+      {/* Marathon Modal */}
+      {showMarathon && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center sm:p-4"
+          onClick={() => {
+            setShowMarathon(false);
+            setExcludedFromMarathon(new Set());
+          }}
+        >
+          <div
+            className="bg-white sm:border-4 border-black w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[80vh] overflow-auto flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-black text-white p-4 flex-shrink-0">
+              <h2 className="text-2xl font-black uppercase tracking-wider text-center">
+                MAXIMUM MOVIE DAY
+              </h2>
+              {marathonResult.schedule.length > 0 && (
+                <p className="text-center text-sm mt-2 opacity-80">
+                  {marathonResult.stats.filmCount} films &bull;{" "}
+                  {formatDuration(marathonResult.stats.screenTimeMinutes)} screen time &bull;{" "}
+                  {formatDuration(marathonResult.stats.totalTimeMinutes)} total &bull;{" "}
+                  {marathonResult.stats.venueChanges} venue change{marathonResult.stats.venueChanges !== 1 ? "s" : ""}
+                </p>
+              )}
+            </div>
+            <div className="bg-yellow-50 border-b-2 border-black px-4 py-3 text-xs text-gray-600 flex-shrink-0">
+              <p className="font-bold uppercase text-gray-700 mb-1">How this works</p>
+              <p>
+                Calculates the maximum films you could see back-to-back. Assumes 20 min travel between venues.
+                Runtime defaults to 2h where unavailable (Cinematheque, Rio, Park). Use venue filters on the main page to limit theatres.
+              </p>
+              <p className="mt-1 italic">
+                Not considered: ads/trailers, concession lines, delays, bathroom breaks, or your stamina.
+              </p>
+            </div>
+            <div className="p-4 flex-1 overflow-auto">
+              {marathonResult.schedule.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">No movies today</p>
+              ) : (
+                <div className="space-y-3">
+                  {marathonResult.schedule.map((movie, index) => {
+                    const prevMovie = index > 0 ? marathonResult.schedule[index - 1] : null;
+                    const isVenueChange = prevMovie && prevMovie.theatre !== movie.theatre;
+                    const isFirst = index === 0;
+                    return (
+                      <div key={`${movie.start}-${movie.title}`}>
+                        {isFirst && (
+                          <div className="text-center text-xs text-gray-500 py-2 border-b border-dashed border-gray-300 mb-2">
+                            Begin at {getVenueLabel(movie)}
+                          </div>
+                        )}
+                        {isVenueChange && (
+                          <div className="text-center text-xs text-gray-500 py-2 border-t border-dashed border-gray-300">
+                            20 min travel to {getVenueLabel(movie)}
+                          </div>
+                        )}
+                        <div className="flex gap-2 items-stretch min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => openEventLink(movie)}
+                            className="flex gap-4 items-start border-2 border-black p-3 flex-1 min-w-0 text-left hover:bg-yellow-50 transition-colors overflow-hidden"
+                          >
+                            <div className="flex-shrink-0 text-center">
+                              <div className="text-lg font-black">{formatTime(movie.start)}</div>
+                              <div className="text-xs text-gray-500">{formatTime(movie.end)}</div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-black uppercase truncate">{parseEventTitle(movie.title, movie).title}</div>
+                              <div className="text-xs text-gray-600 mt-1">{getVenueLabel(movie)}</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExcludedFromMarathon((prev) => {
+                                const next = new Set(prev);
+                                next.add(getMarathonMovieKey(movie));
+                                return next;
+                              });
+                            }}
+                            className="border-2 border-black px-3 hover:bg-red-100 transition-colors text-gray-400 hover:text-red-600 font-black flex-shrink-0"
+                            title="Exclude from marathon"
+                          >
+                            X
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="border-t-4 border-black p-4 flex gap-2 flex-shrink-0">
+              {excludedFromMarathon.size > 0 && (
+                <button
+                  onClick={() => setExcludedFromMarathon(new Set())}
+                  className="flex-1 bg-white text-black py-3 font-black uppercase border-2 border-black hover:bg-yellow-100 transition-colors"
+                >
+                  RESET ({excludedFromMarathon.size} excluded)
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setShowMarathon(false);
+                  setExcludedFromMarathon(new Set());
+                }}
+                className="flex-1 bg-black text-white py-3 font-black uppercase hover:bg-gray-800 transition-colors"
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Max Mode Explosions */}
+      {maxModeExplosions.map((explosion) => (
+        <div
+          key={explosion.id}
+          className="fixed pointer-events-none z-[9999]"
+          style={{ left: `${explosion.x}%`, top: `${explosion.y}%` }}
+        >
+          <img
+            src={explosion.image}
+            alt=""
+            className="max-w-48 max-h-48 border-8 border-black shadow-2xl animate-[explosion_2.5s_ease-out_forwards] -translate-x-1/2 -translate-y-1/2"
+          />
+          <span className="absolute -left-8 top-1/2 -translate-y-1/2 text-5xl animate-[fireLeft_2.5s_ease-out_forwards]">
+            🔥
+          </span>
+          <span className="absolute -right-8 top-1/2 -translate-y-1/2 text-5xl animate-[fireRight_2.5s_ease-out_forwards]">
+            🔥
+          </span>
+        </div>
+      ))}
     </>
   );
 }

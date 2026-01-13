@@ -39,9 +39,11 @@ export async function fetchRioEvents(
 
     array.forEach((listing: any) => {
       const startDate = new Date(listing.start_time);
-      const endDate = listing.end_time
-        ? new Date(listing.end_time)
-        : new Date(startDate.getTime() + 120 * 60000); // Default 2 hours if no end time
+      const parsedEnd = listing.end_time ? new Date(listing.end_time) : null;
+      // Use end_time only if it's actually different from start_time, otherwise default to 2 hours
+      const endDate = parsedEnd && parsedEnd.getTime() > startDate.getTime()
+        ? parsedEnd
+        : new Date(startDate.getTime() + 120 * 60000);
 
       if (formatDateKey(startDate) === targetDateKey) {
         events.push({
