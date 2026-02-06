@@ -91,8 +91,9 @@ export async function fetchCineplexEvents(
         for (const movie of dateData.movies) {
           for (const experience of movie.experiences) {
             for (const session of experience.sessions) {
-              // Parse the showtime
-              const startDate = new Date(session.showStartDateTime);
+              // Parse the showtime — use the UTC field since showStartDateTime
+              // is a timezone-naive local string that CF Workers parses as UTC
+              const startDate = new Date(session.showStartDateTimeUtc);
 
               // Check if this showtime is for the target date
               if (formatDateKey(startDate) !== targetDateKey) {
