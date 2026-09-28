@@ -34,7 +34,7 @@ export async function fetchCinemathequeEvents(
   const events: CalendarInstance[] = [];
 
   try {
-    const response = await fetch("https://thecinematheque.ca/films/calendar");
+    const response = await fetch("https://thecinematheque.ca/films/calendar", { signal: AbortSignal.timeout(8_000) });
 
     if (!response.ok) {
       console.error(
@@ -42,11 +42,12 @@ export async function fetchCinemathequeEvents(
         response.status,
         response.statusText
       );
-      return events;
+      throw new Error("Cinematheque returned " + response.status);
     }
 
     const html = await response.text();
     const $ = cheerio.load(html);
+    if (!$("#eventCalendar").length) throw new Error("Cinematheque calendar missing");
 
     const pst = getPstDateComponents(date);
     const targetYear = pst.year;
@@ -179,7 +180,6 @@ export async function fetchCinemathequeEvents(
 
     return events;
   } catch (error) {
-    console.error("Failed to load Cinematheque schedule", error);
-    return events;
+    throw error;
   }
 }

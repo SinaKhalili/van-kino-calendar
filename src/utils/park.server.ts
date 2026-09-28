@@ -27,13 +27,17 @@ export async function fetchParkEvents(
   const endStr = endDate.toISOString().replace(/:/g, "%3A");
 
   const response = await fetch(
-    `https://www.theparktheatre.ca/wp-json/barker/v1/listings?_embed=true&end_date=${endStr}&page=1&per_page=500&start_date=${startStr}&status=publish`
+    `https://www.theparktheatre.ca/wp-json/barker/v1/listings?_embed=true&end_date=${endStr}&page=1&per_page=500&start_date=${startStr}&status=publish`,
+    { signal: AbortSignal.timeout(8_000) }
   );
+
+  if (!response.ok) throw new Error("Park listings returned " + response.status);
 
   const events: CalendarInstance[] = [];
   if (response.ok) {
     const json = await response.json();
-    const array = Array.isArray(json) ? json : [];
+    if (!Array.isArray(json)) throw new Error("Unexpected listings response");
+    const array = json;
 
     const targetDateKey = targetKey ?? formatDateKey(date);
 

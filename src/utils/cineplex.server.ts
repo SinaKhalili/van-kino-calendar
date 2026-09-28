@@ -54,6 +54,7 @@ async function fetchCineplexShowtimes(
   url.searchParams.set("LocationId", theatreId);
 
   const response = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(8_000),
     headers: {
       accept: "application/json",
       "Ocp-Apim-Subscription-Key": CINEPLEX_API_KEY,
@@ -64,10 +65,12 @@ async function fetchCineplexShowtimes(
     console.error(
       `Cineplex API error for theatre ${theatreId}: ${response.status}`
     );
-    return [];
+    throw new Error("Cineplex returned " + response.status);
   }
 
-  return response.json();
+  const json = await response.json();
+  if (!Array.isArray(json)) throw new Error("Unexpected Cineplex response");
+  return json;
 }
 
 export async function fetchCineplexEvents(

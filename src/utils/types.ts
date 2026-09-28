@@ -1,3 +1,5 @@
+import type { Theatre } from "./venues";
+
 export interface CalendarInstance {
   start: string;
   end: string;
@@ -5,6 +7,7 @@ export interface CalendarInstance {
   title: string;
   moreInfo: string;
   eventType: string;
-  theatre: "viff" | "rio" | "cinematheque" | "park" | "fifth-avenue" | "international-village";
+  theatre: Theatre;
+  isViffFestival?: boolean;
   moreInfoUrl?: string;
 }

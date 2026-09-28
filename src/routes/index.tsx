@@ -9,6 +9,9 @@ import {
 } from "../data/hype.server";
 import { getEventIdentifier } from "../utils/event-ids";
 import type { CalendarInstance } from "../utils/types";
+import { venues, venueFilters, type Theatre } from "../utils/venues";
+import ViffBanner from "../components/ViffBanner";
+import ListingFreshness, { type ListingFreshnessProps } from "../components/ListingFreshness";
 import Calendar from "../components/Calendar";
 import {
   addDaysInPst,
@@ -22,7 +25,6 @@ import {
 import {
   calculateMarathon,
   formatDuration,
-  type MarathonResult,
 } from "../utils/movie-marathon";
 
 type SearchSchema = {
@@ -62,37 +64,26 @@ export const Route = createFileRoute("/")({
       events: result.events,
       dateIso: result.dateIso,
       dateKey: result.dateKey,
+      updatedAt: result.updatedAt,
+      stale: result.stale,
+      unavailableSources: result.unavailableSources,
     };
   },
 });
 
-type VenueFilter = "viff" | "rio" | "cinematheque" | "park" | "fifth-avenue" | "international-village";
-const venueFilters: VenueFilter[] = ["viff", "rio", "cinematheque", "park", "fifth-avenue", "international-village"];
-const venueLinkMap: Record<VenueFilter, string> = {
-  viff: "https://viff.org",
-  rio: "https://riotheatre.ca",
-  cinematheque: "https://thecinematheque.ca",
-  park: "https://www.theparktheatre.ca",
-  "fifth-avenue": "https://www.cineplex.com/theatre/fifth-avenue-cinemas",
-  "international-village": "https://www.cineplex.com/theatre/international-village",
-};
-const venueDisplayNames: Record<VenueFilter, string> = {
-  viff: "VIFF",
-  rio: "RIO",
-  cinematheque: "CINEMATHEQUE",
-  park: "PARK",
-  "fifth-avenue": "FIFTH AVE",
-  "international-village": "INT'L VILLAGE",
-};
+type VenueFilter = Theatre;
+const regularVenueFilters: VenueFilter[] = [
+  "viff", "rio", "cinematheque", "park", "fifth-avenue", "international-village",
+];
 const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 type ThemeMode = "festival" | "showtime" | "billboard";
-type LoadedDayBucket = {
+type LoadedDayBucket = ListingFreshnessProps & {
   events: CalendarInstance[];
   date: Date;
   dateKey: string;
 };
-type RenderDay = {
+type RenderDay = ListingFreshnessProps & {
   dateKey: string;
   events: CalendarInstance[];
   label: string;
@@ -111,8 +102,9 @@ function App() {
   const date = parseDateKey(displayKey) ?? fallbackDate;
   const navigate = useNavigate();
   const [activeVenues, setActiveVenues] = useState<VenueFilter[]>([
-    "viff", "rio", "cinematheque", "park",
+    ...venueFilters,
   ]);
+  const [festivalFilter, setFestivalFilter] = useState("");
   const [showCalendar, setShowCalendar] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window !== "undefined") {
@@ -217,10 +209,13 @@ function App() {
         events,
         date: loaderDate,
         dateKey: loaderDateKey,
+        updatedAt: loaderData.updatedAt,
+        stale: loaderData.stale,
+        unavailableSources: loaderData.unavailableSources,
       },
     });
     setLoadedDayOrder([loaderDateKey]);
-  }, [events, loaderDateKey, dateIso]);
+  }, [events, loaderDateKey, dateIso, loaderData.updatedAt, loaderData.stale, loaderData.unavailableSources]);
 
   const handleHeartClick = () => {
     if (heartClickTimeout) {
@@ -256,10 +251,11 @@ function App() {
         return [];
       }
       return items.filter((event: CalendarInstance) =>
-        activeVenues.includes(event.theatre as VenueFilter)
+        activeVenues.includes(event.theatre as VenueFilter) &&
+        (!festivalFilter || event.isViffFestival === true)
       );
     },
-    [activeVenues]
+    [activeVenues, festivalFilter]
   );
   const infiniteDayData = useMemo<RenderDay[]>(() => {
     if (!isInfiniteScrollEnabled) {
@@ -276,6 +272,9 @@ function App() {
         )}`;
         return {
           dateKey: bucket.dateKey,
+          updatedAt: bucket.updatedAt,
+          stale: bucket.stale,
+          unavailableSources: bucket.unavailableSources,
           events: filterEventsByVenue(bucket.events),
           label,
           isToday: formatDateKey(bucket.date) === todayKey,
@@ -320,6 +319,9 @@ function App() {
           events: response.events,
           date: resolvedDate,
           dateKey: response.dateKey,
+          updatedAt: response.updatedAt,
+          stale: response.stale,
+          unavailableSources: response.unavailableSources,
         },
       }));
       setLoadedDayOrder((prev) =>
@@ -391,13 +393,6 @@ function App() {
     [filteredData, excludedFromMarathon]
   );
 
-  const visibleEvents = useMemo<CalendarInstance[]>(() => {
-    if (isInfiniteScrollEnabled) {
-      return infiniteDayData.flatMap((day) => day.events);
-    }
-    return filteredData;
-  }, [filteredData, infiniteDayData, isInfiniteScrollEnabled]);
-
   useEffect(() => {
     const collections = isInfiniteScrollEnabled
       ? infiniteDayData.map((day) => day.events)
@@ -455,14 +450,17 @@ function App() {
     if (event.theatre === "international-village") {
       return "INT'L VILLAGE";
     }
-    return formatVenue(event.resourceId);
+    if (event.theatre === "viff" || event.theatre === "other-viff-venue" || event.theatre === "sfu-woodwards") {
+      return formatVenue(event.resourceId);
+    }
+    return venues[event.theatre].name;
   };
 
   const getVenueUrl = (event: CalendarInstance) => {
     if (!event.theatre) {
       return null;
     }
-    return venueLinkMap[event.theatre as VenueFilter] ?? null;
+    return venues[event.theatre]?.url ?? null;
   };
 
   const resolveEventUrl = (event: CalendarInstance) => {
@@ -669,6 +667,7 @@ function App() {
                 key={index}
                 className={`border-b border-black last:border-b-0 px-3 py-3 text-sm sm:text-base font-black uppercase tracking-tight ${tintClass}`}
               >
+                <ViffBanner event={event} />
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                   <div className="flex items-center gap-2 text-black whitespace-nowrap sm:flex-none">
                     <span className="text-lg sm:text-xl font-black">
@@ -741,6 +740,7 @@ function App() {
                     </div>
                     <div className="flex-1 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
                       <div className="flex-1">
+                        <ViffBanner event={event} />
                         <button
                           type="button"
                           onClick={() => openEventLink(event)}
@@ -798,6 +798,7 @@ function App() {
                   : "bg-gray-50 hover:bg-gray-100"
               }`}
             >
+              <ViffBanner event={event} />
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                 <div className="flex flex-col gap-1 sm:flex-none">
                   <div className="text-3xl font-black text-black leading-none">
@@ -831,6 +832,11 @@ function App() {
   };
 
   const toggleVenue = (venue: VenueFilter) => {
+    if (festivalFilter) {
+      setFestivalFilter("");
+      setActiveVenues([venue]);
+      return;
+    }
     setActiveVenues((prev) => {
       if (prev.includes(venue)) {
         return prev.filter((item) => item !== venue);
@@ -1158,11 +1164,11 @@ function App() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:flex gap-2 mb-4">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-4">
             <button
-              onClick={() => setActiveVenues([...venueFilters])}
+              onClick={() => { setFestivalFilter(""); setActiveVenues([...venueFilters]); }}
               className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                activeVenues.length === venueFilters.length
+                !festivalFilter && activeVenues.length === venueFilters.length
                   ? "bg-black text-white"
                   : "bg-white text-black hover:bg-yellow-400"
               }`}
@@ -1170,7 +1176,7 @@ function App() {
               ALL
             </button>
             <button
-              onClick={() => setActiveVenues([])}
+              onClick={() => { setFestivalFilter(""); setActiveVenues([]); }}
               className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
                 activeVenues.length === 0
                   ? "bg-black text-white"
@@ -1179,21 +1185,43 @@ function App() {
             >
               NONE
             </button>
-            {venueFilters.map((venue) => (
+            {regularVenueFilters.map((venue) => (
               <button
                 key={venue}
+                aria-pressed={!festivalFilter && activeVenues.includes(venue)}
                 onClick={() => toggleVenue(venue)}
                 className={`w-full sm:w-auto px-4 py-2 text-sm font-black uppercase border-4 border-black transition-colors ${
-                  activeVenues.includes(venue)
+                  !festivalFilter && activeVenues.includes(venue)
                     ? "bg-black text-white"
                     : "bg-white text-black hover:bg-yellow-400"
                 }`}
               >
-                {venueDisplayNames[venue]}
+                {venues[venue].name}
               </button>
             ))}
+            <select
+              aria-label="VIFF festival films"
+              value={festivalFilter}
+              onChange={(event) => {
+                const selection = event.target.value;
+                setFestivalFilter(selection);
+                setActiveVenues(selection === "all" ? [...venueFilters] : [selection as VenueFilter]);
+              }}
+              className={`col-span-2 w-full min-w-0 border-4 border-black px-4 py-2 text-sm font-black uppercase sm:w-auto sm:max-w-72 ${
+                festivalFilter ? "bg-fuchsia-600 text-white" : "bg-white text-black"
+              }`}
+            >
+              <option value="" disabled>VIFF festival ▾</option>
+              <option value="all">All VIFF films</option>
+              <optgroup label="VIFF films by theatre">
+                {venueFilters.map((venue) => (
+                  <option key={venue} value={venue}>{venues[venue].name}</option>
+                ))}
+              </optgroup>
+            </select>
           </div>
 
+          {!isLoading && !isInfiniteScrollEnabled && <ListingFreshness {...loaderData} />}
           {isLoading ? (
             <div className="text-black text-base font-bold border-4 border-black p-4 bg-yellow-200 animate-pulse text-center">
               FETCHING LATEST PROGRAMME…
@@ -1205,6 +1233,7 @@ function App() {
               <div className="space-y-6">
                 {infiniteDayData.map((day) => (
                   <section key={day.dateKey} className="space-y-3">
+                    <ListingFreshness {...day} />
                     <div
                       className={`${
                         isBillboardTheme

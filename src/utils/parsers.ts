@@ -16,8 +16,8 @@ function decodeHtmlEntities(text: string): string {
 }
 
 export function parseEventTitle(html: string, event: CalendarInstance) {
-  // For Rio, Cinematheque, Park, Fifth Avenue, and International Village events, title is already plain text
-  if (event.theatre === "rio" || event.theatre === "cinematheque" || event.theatre === "park" || event.theatre === "fifth-avenue" || event.theatre === "international-village") {
+  // VIFF supplies HTML at every venue; other feeds supply plain titles.
+  if (!/<h3[\s>]/i.test(html)) {
     return {
       title: decodeHtmlEntities(event.title),
       time: "",
