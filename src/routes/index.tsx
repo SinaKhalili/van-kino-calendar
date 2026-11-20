@@ -921,7 +921,7 @@ function App() {
                         : ""
                     }`}
                   >
-                    LIVE LISTINGS / PST
+                    LIVE LISTINGS / PT
                   </span>
                   <h1
                     className={`text-3xl sm:text-5xl font-black uppercase ${

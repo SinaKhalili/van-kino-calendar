@@ -34,11 +34,22 @@ function getNthWeekdayOfMonth(
   return 1 + offset + (nth - 1) * 7;
 }
 
+// BC adopted permanent daylight time (UTC-7, now just "Pacific Time") under
+// Regulation 20/2026: clocks sprang forward on 2026-03-08 and did not fall back
+// on 2026-11-01. Bundled IANA tzdata (e.g. 2026a) still predicts PST, so we
+// can't defer to Intl here.
+const BC_PERMANENT_DAYLIGHT_START_UTC = Date.UTC(2026, 2, 8, 10, 0, 0); // 2am PST
+
 function getPacificOffsetMinutes(date: Date): number {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return -8 * 60;
+    return -7 * 60;
   }
 
+  if (date.getTime() >= BC_PERMANENT_DAYLIGHT_START_UTC) {
+    return -7 * 60;
+  }
+
+  // Historical North American DST rules for dates before the switch.
   const year = date.getUTCFullYear();
   const dstStartDay = getNthWeekdayOfMonth(year, 2, 0, 2); // Second Sunday in March
   const dstEndDay = getNthWeekdayOfMonth(year, 10, 0, 1); // First Sunday in November
@@ -83,21 +94,27 @@ export function parseDateKey(dateKey: string): Date | null {
     return null;
   }
 
-  // Create date at noon PST (not UTC) to avoid timezone issues
-  // Format: YYYY-MM-DDTHH:mm:ss-08:00 (PST) or -07:00 (PDT)
-  const dateStr = `${yearStr}-${pad(month)}-${pad(day)}T12:00:00`;
-  const candidates = ["-08:00", "-07:00"].map((offset) =>
-    new Date(`${dateStr}${offset}`)
+  // Anchor at noon Vancouver time to stay clear of day boundaries
+  const noon = pacificWallTimeToDate(year, month, day, 12);
+  // Reject impossible dates like 2026-02-31 that Date.UTC would roll over
+  return formatDateKey(noon) === dateKey ? noon : null;
+}
+
+// Convert a Vancouver wall-clock time (as printed on a venue's site) to an instant
+export function pacificWallTimeToDate(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0
+): Date {
+  const wallClockAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  // The offset only changes at a few instants a year, so the offset in effect
+  // near the wall-clock time is the one that applies to it.
+  const offsetMinutes = getPacificOffsetMinutes(
+    new Date(wallClockAsUtc + 8 * 60 * 60 * 1000)
   );
-
-  for (const candidate of candidates) {
-    if (formatDateKey(candidate) === dateKey) {
-      return candidate;
-    }
-  }
-
-  // Fallback to PST (shouldn't happen, but just in case)
-  return candidates[0];
+  return new Date(wallClockAsUtc - offsetMinutes * 60 * 1000);
 }
 
 // Helper to get PST date components from any date
